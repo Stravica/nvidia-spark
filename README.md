@@ -44,12 +44,13 @@ curl -X POST http://localhost:8000/v1/completions \
 
 ## Available Services
 
-### 1. vLLM + Qwen3-32B (Port 8000)
+### 1. vLLM + Qwen3-32B (Port 8000) - Default
 
-High-performance inference server running Alibaba's Qwen3-32B model (32.8B parameters).
+High-performance inference server running Alibaba's Qwen3-32B model (32.8B parameters) in BF16 precision.
 
 **Features:**
 - OpenAI-compatible API
+- Full BF16 precision (best quality)
 - 24K token context length
 - Prefix caching enabled
 - Optimized for DGX Spark GB10 architecture
@@ -58,7 +59,8 @@ High-performance inference server running Alibaba's Qwen3-32B model (32.8B param
 **Configuration:**
 ```yaml
 Model: Qwen/Qwen3-32B
-Memory: ~61 GB (BF16)
+Precision: BF16
+Memory: ~61 GB
 GPU Utilization: 85% (~109 GB)
 KV Cache: 35.3 GB (144,624 tokens)
 Max Sequences: 48
@@ -72,7 +74,39 @@ Max Sequences: 48
 - Docs: `http://localhost:8000/docs`
 - Metrics: `http://localhost:8000/metrics`
 
-### 2. Ollama (Port 11434)
+### 2. vLLM + Qwen2.5-32B-Instruct-FP8 (Port 8001) - Optional
+
+FP8 quantized version for maximum throughput and concurrency (requires profile flag to enable).
+
+**Features:**
+- FP8 quantization (~40% memory reduction)
+- 32K token context length
+- Up to 64 concurrent requests
+- Higher aggregate throughput
+- Similar quality to BF16 for most tasks
+
+**Configuration:**
+```yaml
+Model: Qwen/Qwen2.5-32B-Instruct-FP8
+Precision: FP8
+Memory: ~40 GB (estimated)
+GPU Utilization: 90% (~115 GB)
+Max Sequences: 64
+```
+
+**Start FP8 service:**
+```bash
+# Stop BF16 service first (only one can run at a time)
+docker compose down vllm-qwen3-32b
+
+# Start FP8 service
+docker compose --profile fp8 up -d vllm-qwen3-32b-fp8
+
+# API available on port 8001
+curl http://localhost:8001/health
+```
+
+### 3. Ollama (Port 11434)
 
 General-purpose LLM inference server with support for multiple models.
 
@@ -153,13 +187,15 @@ Required for downloading gated models like Qwen3-32B.
 
 ### Starting Services
 
+**Default Services (BF16):**
 ```bash
-# Start specific service
+# Start Qwen3-32B in BF16 (port 8000)
 docker compose up -d vllm-qwen3-32b
-# or
+
+# Start Ollama
 docker compose up -d ollama
 
-# Start all services
+# Start both default services
 docker compose up -d
 
 # View logs
@@ -167,6 +203,22 @@ docker compose logs -f vllm-qwen3-32b
 
 # Check status
 docker compose ps
+```
+
+**FP8 Service (Optional):**
+```bash
+# IMPORTANT: Stop BF16 service first (both can't run simultaneously)
+docker compose down vllm-qwen3-32b
+
+# Start FP8 quantized model (port 8001)
+docker compose --profile fp8 up -d vllm-qwen3-32b-fp8
+
+# Monitor FP8 loading
+docker compose logs -f vllm-qwen3-32b-fp8
+
+# Switch back to BF16
+docker compose down vllm-qwen3-32b-fp8
+docker compose up -d vllm-qwen3-32b
 ```
 
 ### First-Time Model Loading
@@ -210,9 +262,9 @@ docker exec vllm-qwen3-32b nvidia-smi
 
 ## Usage Examples
 
-### vLLM (Qwen3-32B)
+### vLLM (Qwen3-32B or Qwen2.5-32B-FP8)
 
-**Text Completion:**
+**Text Completion (BF16 on port 8000):**
 ```bash
 curl -X POST http://localhost:8000/v1/completions \
   -H "Content-Type: application/json" \
@@ -224,7 +276,7 @@ curl -X POST http://localhost:8000/v1/completions \
   }'
 ```
 
-**Chat Completion:**
+**Chat Completion (BF16 on port 8000):**
 ```bash
 curl -X POST http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
@@ -235,6 +287,18 @@ curl -X POST http://localhost:8000/v1/chat/completions \
       {"role": "user", "content": "Explain quantum entanglement in simple terms"}
     ],
     "max_tokens": 150,
+    "temperature": 0.7
+  }'
+```
+
+**Using FP8 Model (if running on port 8001):**
+```bash
+curl -X POST http://localhost:8001/v1/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "Qwen/Qwen2.5-32B-Instruct-FP8",
+    "prompt": "Write a Python function to calculate fibonacci numbers:",
+    "max_tokens": 200,
     "temperature": 0.7
   }'
 ```
@@ -424,13 +488,21 @@ ports:
 
 ## Performance Notes
 
-### Expected Performance (Qwen3-32B on DGX Spark)
+### Expected Performance on DGX Spark
 
+**BF16 Model (Qwen3-32B):**
 - **Single Request:** ~3-4 tokens/sec generation
 - **Batched (8-16 concurrent):** ~30-60 tokens/sec aggregate
 - **Batched (32-48 concurrent):** ~100-180 tokens/sec aggregate
 - **First Token Latency:** 200-500ms (depends on prompt length)
-- **Max Throughput:** Scales with concurrent requests up to max_num_seqs
+- **Max Throughput:** Scales with concurrent requests up to 48 sequences
+
+**FP8 Model (Qwen2.5-32B-Instruct-FP8) - Estimated:**
+- **Single Request:** ~3-4 tokens/sec generation (similar to BF16)
+- **Batched (16-32 concurrent):** ~50-120 tokens/sec aggregate
+- **Batched (48-64 concurrent):** ~150-250 tokens/sec aggregate
+- **Max Throughput:** Scales with concurrent requests up to 64 sequences
+- **Quality:** Minimal degradation vs BF16 for most tasks
 
 ### Optimization Strategy
 
@@ -438,8 +510,34 @@ The DGX Spark's 273 GB/s memory bandwidth is the primary bottleneck (vs 900+ GB/
 
 1. **Use batching** - Send multiple requests concurrently
 2. **Enable prefix caching** - Reuse common prompt prefixes (already enabled)
-3. **Reduce context length** - If you don't need 24K tokens, reduce to 16K or 20K
-4. **Use FP8 quantization** - For even more concurrent requests (see docs)
+3. **Reduce context length** - If you don't need 24K-32K tokens, reduce to 16K or 20K
+4. **Use FP8 quantization** - Switch to FP8 service for more concurrent requests and higher aggregate throughput
+5. **Profile your workload** - Test both BF16 and FP8 to see which works best for your use case
+
+## Model Comparison
+
+| Feature | Qwen3-32B (BF16) | Qwen2.5-32B-Instruct-FP8 |
+|---------|------------------|---------------------------|
+| **Port** | 8000 | 8001 |
+| **Precision** | BF16 (16-bit) | FP8 (8-bit) |
+| **Memory** | ~61 GB | ~40 GB |
+| **Context Length** | 24K tokens | 32K tokens |
+| **Max Concurrent** | 48 requests | 64 requests |
+| **GPU Memory Usage** | 85% (~109 GB) | 90% (~115 GB) |
+| **Quality** | Best | Minimal degradation |
+| **Use Case** | Best quality, moderate concurrency | Maximum throughput, high concurrency |
+| **Profile Flag** | Default (no flag) | `--profile fp8` required |
+
+**When to use BF16:**
+- Quality is paramount
+- Lower concurrent load (< 32 requests)
+- First-time setup (default)
+
+**When to use FP8:**
+- Maximum throughput needed
+- High concurrent load (> 32 requests)
+- Longer context windows (up to 32K)
+- Memory savings for other workloads
 
 ## Repository Structure
 
@@ -447,7 +545,7 @@ The DGX Spark's 273 GB/s memory bandwidth is the primary bottleneck (vs 900+ GB/
 .
 ├── README.md                    # This file
 ├── CLAUDE.md                    # Hardware specs and AI assistant instructions
-├── docker-compose.yml           # Service definitions
+├── docker-compose.yml           # Service definitions (BF16 + FP8)
 ├── .env                         # Environment variables (create this)
 ├── docs/
 │   └── models/
