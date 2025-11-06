@@ -1,0 +1,32 @@
+# Environment variables
+.env
+.env.local
+
+# Claude Code settings (may contain API keys)
+.claude/settings.json
+.claude/settings.local.json
+
+# Docker volumes
+/opt/hf/
+/opt/ollama/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+tmp/
+temp/

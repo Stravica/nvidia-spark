@@ -1,0 +1,61 @@
+name: "gpu-inference"
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    environment:
+      # keep models hot for 30 minutes after last use
+      OLLAMA_KEEP_ALIVE: "30m"   # supported server env var
+      OLLAMA_HOST: "0.0.0.0:11434"
+    volumes:
+      - /opt/ollama:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  vllm-qwen3-32b:
+    image: nvcr.io/nvidia/vllm:25.09-py3
+    container_name: vllm-qwen3-32b
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      HF_TOKEN: "${HF_TOKEN}"
+      HUGGING_FACE_HUB_TOKEN: "${HF_TOKEN}"
+    ipc: host
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    command:
+      - vllm
+      - serve
+      - Qwen/Qwen3-32B
+      - --download-dir
+      - /root/.cache/huggingface
+      - --max-model-len
+      - "24000"
+      - --gpu-memory-utilization
+      - "0.85"
+      - --max-num-batched-tokens
+      - "16384"
+      - --max-num-seqs
+      - "48"
+      - --enable-prefix-caching
+      - --trust-remote-code
+    volumes:
+      - /opt/hf:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
