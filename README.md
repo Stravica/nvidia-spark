@@ -74,23 +74,25 @@ Max Sequences: 48
 - Docs: `http://localhost:8000/docs`
 - Metrics: `http://localhost:8000/metrics`
 
-### 2. vLLM + Qwen2.5-32B-Instruct-FP8 (Port 8001) - Optional
+### 2. vLLM + Qwen3-32B-FP8 (Port 8001) - Optional
 
 FP8 quantized version for maximum throughput and concurrency (requires profile flag to enable).
 
 **Features:**
-- FP8 quantization (~40% memory reduction)
+- FP8 quantization (47% memory reduction vs BF16)
 - 32K token context length
 - Up to 64 concurrent requests
-- Higher aggregate throughput
-- Similar quality to BF16 for most tasks
+- 87% more KV cache than BF16
+- Better single-request performance than BF16
+- Minimal quality degradation
 
 **Configuration:**
 ```yaml
-Model: Qwen/Qwen2.5-32B-Instruct-FP8
+Model: Qwen/Qwen3-32B-FP8
 Precision: FP8
-Memory: ~40 GB (estimated)
+Memory: 32.04 GB (measured)
 GPU Utilization: 90% (~115 GB)
+KV Cache: 66.25 GB (271,360 tokens)
 Max Sequences: 64
 ```
 
@@ -223,22 +225,18 @@ docker compose up -d vllm-qwen3-32b
 
 ### First-Time Model Loading
 
-The first time you start vLLM, expect 7-8 minutes for initialization:
+**BF16 Model (Qwen3-32B):** Expect 7-8 minutes for initialization:
+1. Model Download: ~2-3 min (~63 GB, 17 safetensors shards)
+2. Model Loading: ~5.8 min
+3. torch.compile: ~19 sec
+4. CUDA compilation: ~42 sec (first run only)
+5. KV cache + CUDA graphs: ~6 sec
 
-1. **Model Download** (~2-3 min, ~63 GB)
-   - Downloads 17 safetensors shards from Hugging Face
-   - Cached in `/opt/hf` for future runs
-
-2. **Model Loading** (~5.8 min)
-   - Loads all 17 shards into unified memory
-
-3. **Compilation** (~1 min)
-   - torch.compile optimization
-   - CUDA kernel compilation (first run only)
-
-4. **Initialization** (~6 sec)
-   - KV cache allocation
-   - CUDA graph capture
+**FP8 Model (Qwen3-32B-FP8):** Expect 10-11 minutes for initialization:
+1. Model Download: ~6 min (~32 GB, 7 safetensors shards)
+2. Model Loading: ~3.5 min
+3. torch.compile: ~17 sec
+4. KV cache + CUDA graphs: ~4 sec
 
 Watch logs for progress:
 ```bash
@@ -296,7 +294,7 @@ curl -X POST http://localhost:8000/v1/chat/completions \
 curl -X POST http://localhost:8001/v1/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "Qwen/Qwen2.5-32B-Instruct-FP8",
+    "model": "Qwen/Qwen3-32B-FP8",
     "prompt": "Write a Python function to calculate fibonacci numbers:",
     "max_tokens": 200,
     "temperature": 0.7
@@ -497,12 +495,13 @@ ports:
 - **First Token Latency:** 200-500ms (depends on prompt length)
 - **Max Throughput:** Scales with concurrent requests up to 48 sequences
 
-**FP8 Model (Qwen2.5-32B-Instruct-FP8) - Estimated:**
-- **Single Request:** ~3-4 tokens/sec generation (similar to BF16)
-- **Batched (16-32 concurrent):** ~50-120 tokens/sec aggregate
-- **Batched (48-64 concurrent):** ~150-250 tokens/sec aggregate
+**FP8 Model (Qwen3-32B-FP8) - Measured:**
+- **Single Request:** ~6-7 tokens/sec generation (better than BF16!)
+- **Batched (16-32 concurrent):** ~100-200 tokens/sec aggregate (estimated)
+- **Batched (48-64 concurrent):** ~300-400 tokens/sec aggregate (estimated)
 - **Max Throughput:** Scales with concurrent requests up to 64 sequences
 - **Quality:** Minimal degradation vs BF16 for most tasks
+- **Memory Efficiency:** 47% less model memory, 87% more KV cache
 
 ### Optimization Strategy
 
@@ -516,16 +515,20 @@ The DGX Spark's 273 GB/s memory bandwidth is the primary bottleneck (vs 900+ GB/
 
 ## Model Comparison
 
-| Feature | Qwen3-32B (BF16) | Qwen2.5-32B-Instruct-FP8 |
-|---------|------------------|---------------------------|
+| Feature | Qwen3-32B (BF16) | Qwen3-32B-FP8 |
+|---------|------------------|---------------|
 | **Port** | 8000 | 8001 |
 | **Precision** | BF16 (16-bit) | FP8 (8-bit) |
-| **Memory** | ~61 GB | ~40 GB |
+| **Model Size** | 61.03 GB | 32.04 GB (47% less) |
+| **KV Cache** | 35.3 GB (144K tokens) | 66.25 GB (271K tokens) |
 | **Context Length** | 24K tokens | 32K tokens |
 | **Max Concurrent** | 48 requests | 64 requests |
 | **GPU Memory Usage** | 85% (~109 GB) | 90% (~115 GB) |
+| **Single Request** | ~3-4 tokens/sec | ~6-7 tokens/sec |
+| **Loading Time** | 7-8 minutes | 10-11 minutes |
+| **Model Shards** | 17 safetensors | 7 safetensors |
 | **Quality** | Best | Minimal degradation |
-| **Use Case** | Best quality, moderate concurrency | Maximum throughput, high concurrency |
+| **Use Case** | Best quality | Best throughput + efficiency |
 | **Profile Flag** | Default (no flag) | `--profile fp8` required |
 
 **When to use BF16:**

@@ -76,7 +76,7 @@ services:
     command:
       - vllm
       - serve
-      - Qwen/Qwen2.5-32B-Instruct-FP8
+      - Qwen/Qwen3-32B-FP8
       - --download-dir
       - /root/.cache/huggingface
       - --max-model-len
