@@ -4,16 +4,18 @@
 
 Configuration and deployment guide for running Qwen/Qwen3-32B on NVIDIA DGX Spark (GB10 Grace Blackwell) using vLLM.
 
+**RECOMMENDED: Use the pre-quantized Qwen/Qwen3-32B-FP8 model for optimal performance on DGX Spark.**
+
 ## Model Specifications
 
-- **Model:** Qwen/Qwen3-32B
+- **Model:** Qwen/Qwen3-32B (with FP8 and BF16 variants)
 - **Parameters:** 32.8 billion
 - **Architecture:** Dense Transformer with Grouped Query Attention (GQA)
 - **Context Length:** 32,768 tokens (native), extendable to 131K with YaRN
 - **Memory Requirements:**
-  - BF16: ~61 GB actual (works on DGX Spark with current config)
-  - FP8: ~40 GB (alternative for more headroom)
-  - INT4: ~20 GB (alternative for maximum concurrency)
+  - **FP8 (Qwen/Qwen3-32B-FP8):** ~32 GB - **RECOMMENDED** for DGX Spark
+  - **BF16 (Qwen/Qwen3-32B):** ~65 GB - Alternative for quality-sensitive workloads
+  - **INT4:** ~20 GB - Available but less common
 
 ## Hardware: NVIDIA DGX Spark
 
@@ -27,11 +29,16 @@ Configuration and deployment guide for running Qwen/Qwen3-32B on NVIDIA DGX Spar
 
 ### Performance Characteristics
 - **Primary Bottleneck:** Memory bandwidth (273 GB/s)
-- **Optimization Strategy:** Maximize batch sizes and enable caching
+- **Optimization Strategy:** Use FP8 quantization + maximize batch sizes and enable caching
 - **Measured Throughput:**
   - Single request: ~3-4 tokens/sec generation (measured)
   - Batched requests: Scales linearly with concurrent requests
   - Note: Single-request latency prioritizes quality; batching significantly improves aggregate throughput
+- **Why FP8 is Better:**
+  - Model memory: ~32 GB vs ~65 GB (BF16)
+  - KV cache: ~66 GB vs ~28 GB (2.4x more)
+  - Concurrent sequences: 64 vs 48 (33% more)
+  - Quality: ~99% of BF16 performance on benchmarks
 
 ## Critical: Container Selection
 
@@ -51,9 +58,56 @@ Configuration and deployment guide for running Qwen/Qwen3-32B on NVIDIA DGX Spar
   - FP8 precision on Blackwell GPUs
   - Optimized for GB10 unified memory
 
-## Working Configuration
+## Working Configurations
 
-### docker-compose.yml
+### Recommended: FP8 Quantized (docker-compose.yml)
+
+```yaml
+services:
+  vllm-qwen3-32b-fp8:
+    image: nvcr.io/nvidia/vllm:25.09-py3
+    container_name: vllm-qwen3-32b-fp8
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      HF_TOKEN: "${HF_TOKEN}"
+      HUGGING_FACE_HUB_TOKEN: "${HF_TOKEN}"
+    command:
+      - vllm
+      - serve
+      - Qwen/Qwen3-32B-FP8
+      - --download-dir
+      - /root/.cache/huggingface
+      - --max-model-len
+      - "32000"
+      - --gpu-memory-utilization
+      - "0.90"
+      - --max-num-batched-tokens
+      - "16384"
+      - --max-num-seqs
+      - "64"
+      - --enable-prefix-caching
+      - --trust-remote-code
+    volumes:
+      - /opt/hf:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    profiles:
+      - fp8
+```
+
+**Deployment:**
+```bash
+docker compose --profile fp8 up -d vllm-qwen3-32b-fp8
+```
+
+### Alternative: BF16 Full Precision (docker-compose.yml)
 
 ```yaml
 services:
@@ -66,15 +120,22 @@ services:
     environment:
       HF_TOKEN: "${HF_TOKEN}"
       HUGGING_FACE_HUB_TOKEN: "${HF_TOKEN}"
-    command: >
-      --model Qwen/Qwen3-32B
-      --download-dir /root/.cache/huggingface
-      --max-model-len 24000
-      --gpu-memory-utilization 0.85
-      --max-num-batched-tokens 16384
-      --max-num-seqs 48
-      --enable-prefix-caching
-      --trust-remote-code
+    command:
+      - vllm
+      - serve
+      - Qwen/Qwen3-32B
+      - --download-dir
+      - /root/.cache/huggingface
+      - --max-model-len
+      - "24000"
+      - --gpu-memory-utilization
+      - "0.85"
+      - --max-num-batched-tokens
+      - "16384"
+      - --max-num-seqs
+      - "48"
+      - --enable-prefix-caching
+      - --trust-remote-code
     volumes:
       - /opt/hf:/root/.cache/huggingface
     deploy:
@@ -86,39 +147,46 @@ services:
               capabilities: [gpu]
 ```
 
-### Parameter Explanation
+**Deployment:**
+```bash
+docker compose up -d vllm-qwen3-32b
+```
+
+### Parameter Explanation (FP8 - Recommended)
 
 | Parameter | Value | Reasoning |
 |-----------|-------|-----------|
-| `--model` | `Qwen/Qwen3-32B` | Full BF16 model (no quantization needed with NVIDIA container) |
-| `--max-model-len` | `24000` | Conservative context for memory headroom |
-| `--gpu-memory-utilization` | `0.85` | Safe for unified memory architecture |
+| `--model` | `Qwen/Qwen3-32B-FP8` | Pre-quantized by Qwen team, validated quality |
+| `--max-model-len` | `32000` | Native model context (full 32K support) |
+| `--gpu-memory-utilization` | `0.90` | Aggressive but safe with FP8's smaller footprint |
 | `--max-num-batched-tokens` | `16384` | High value to maximize bandwidth utilization |
-| `--max-num-seqs` | `48` | Balance between throughput and latency |
+| `--max-num-seqs` | `64` | High concurrency enabled by large KV cache |
 | `--enable-prefix-caching` | enabled | Caches common prompt prefixes for efficiency |
 | `--trust-remote-code` | enabled | Required for Qwen models |
 
-### Alternative: FP8 Quantized Configuration
+**Performance Benefits:**
+- Model memory: ~32 GB (vs ~65 GB BF16)
+- KV cache: ~66 GB (vs ~28 GB BF16)
+- Concurrent sequences: 64 (vs 48 BF16)
+- Context length: 32K (vs 24K BF16)
+- Quality: 99% of BF16 on MMLU/GSM8K benchmarks
 
-For even better performance, use pre-quantized model:
+### Parameter Explanation (BF16 - Alternative)
 
-```yaml
-command: >
-  --model Qwen/Qwen3-32B-FP8
-  --download-dir /root/.cache/huggingface
-  --max-model-len 32000
-  --gpu-memory-utilization 0.90
-  --max-num-batched-tokens 16384
-  --max-num-seqs 64
-  --enable-prefix-caching
-  --trust-remote-code
-```
+| Parameter | Value | Reasoning |
+|-----------|-------|-----------|
+| `--model` | `Qwen/Qwen3-32B` | Full BF16 model (higher quality, limited by memory) |
+| `--max-model-len` | `24000` | Reduced context for adequate KV cache headroom |
+| `--gpu-memory-utilization` | `0.85` | Conservative due to larger model size |
+| `--max-num-batched-tokens` | `16384` | High value to maximize bandwidth utilization |
+| `--max-num-seqs` | `48` | Lower concurrency due to limited KV cache |
+| `--enable-prefix-caching` | enabled | Caches common prompt prefixes for efficiency |
+| `--trust-remote-code` | enabled | Required for Qwen models |
 
-Benefits:
-- ~32GB model size (vs ~63GB)
-- More memory for KV cache
-- Higher concurrent request handling
-- Similar accuracy to BF16
+**When to use BF16:**
+- Extremely quality-sensitive applications (marginal gain)
+- Lower concurrency requirements acceptable
+- Willing to trade throughput for potential quality improvement
 
 ## Deployment
 
@@ -135,18 +203,36 @@ Benefits:
 
 ### Start Service
 
+**FP8 (Recommended):**
+```bash
+docker compose --profile fp8 up -d vllm-qwen3-32b-fp8
+```
+
+**BF16 (Alternative):**
 ```bash
 docker compose up -d vllm-qwen3-32b
 ```
 
 ### Monitor Loading
 
+**FP8:**
+```bash
+docker compose logs -f vllm-qwen3-32b-fp8
+```
+
+**BF16:**
 ```bash
 docker compose logs -f vllm-qwen3-32b
 ```
 
-Model loading takes ~7-8 minutes on first run:
-1. Model download/verification (~2-3 min if cached, skip if already downloaded)
+**FP8 Model loading takes ~9-10 minutes on first run:**
+1. Model download (~6 min if not cached - 7 safetensors shards)
+2. Loading safetensors shards (~3.4 min)
+3. torch.compile (~17 sec)
+4. KV cache initialization and CUDA graph capture (~6 sec)
+
+**BF16 Model loading takes ~7-8 minutes on first run:**
+1. Model download (~3-4 min if not cached - 17 safetensors shards)
 2. Loading 17 safetensors shards (~5.8 min)
 3. torch.compile (~19 sec)
 4. CUDA kernel compilation (~42 sec on first run only)
@@ -161,7 +247,17 @@ curl http://localhost:8000/health
 # List models
 curl http://localhost:8000/v1/models
 
-# Test inference
+# Test inference (FP8)
+curl -X POST http://localhost:8000/v1/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "Qwen/Qwen3-32B-FP8",
+    "prompt": "Explain quantum computing in simple terms:",
+    "max_tokens": 100,
+    "temperature": 0.7
+  }'
+
+# Test inference (BF16)
 curl -X POST http://localhost:8000/v1/completions \
   -H "Content-Type: application/json" \
   -d '{
@@ -187,7 +283,7 @@ ValueError: Free memory on device (XX GiB) is less than desired GPU memory utili
 3. Reduce `--gpu-memory-utilization` to 0.70 or 0.75
 4. Reduce `--max-model-len` to 16384
 
-### Issue: FP8 Quantization Fails
+### Issue: FP8 Quantization Fails with On-the-Fly Quantization
 
 **Symptom:**
 ```
@@ -196,8 +292,9 @@ cutlass_scaled_mm failed
 ```
 
 **Solution:**
-- Remove `--quantization fp8` flag (NVIDIA container handles this automatically)
-- Or use pre-quantized model: `Qwen/Qwen3-32B-FP8`
+- **Recommended:** Use pre-quantized model `Qwen/Qwen3-32B-FP8` instead
+- The pre-quantized model is officially quantized by Qwen team and works reliably
+- Avoid using `--quantization fp8` flag with base model (on-the-fly quantization)
 
 ### Issue: Model Download Incomplete
 
@@ -228,21 +325,31 @@ Maximum cuda capability supported is 12.0
 
 ## Performance Tuning
 
-### For Maximum Throughput
+### For Maximum Throughput (FP8 Recommended)
 
 ```yaml
---max-model-len 20000              # Reduce context if not needed
---gpu-memory-utilization 0.90      # Increase memory usage
+# Use Qwen/Qwen3-32B-FP8 model
+--max-model-len 32000              # Full context support
+--gpu-memory-utilization 0.90      # High memory usage (safe with FP8)
 --max-num-batched-tokens 20480     # Larger batches
 --max-num-seqs 64                  # More concurrent requests
 --enable-prefix-caching            # Enable caching
 ```
 
-### For Minimum Latency
+### For Minimum Latency (FP8 or BF16)
 
+**FP8:**
 ```yaml
 --max-model-len 16384              # Smaller context
---gpu-memory-utilization 0.75      # Leave headroom
+--gpu-memory-utilization 0.85      # Moderate memory usage
+--max-num-batched-tokens 8192      # Smaller batches
+--max-num-seqs 16                  # Fewer concurrent requests
+```
+
+**BF16:**
+```yaml
+--max-model-len 16384              # Smaller context
+--gpu-memory-utilization 0.75      # Conservative memory usage
 --max-num-batched-tokens 8192      # Smaller batches
 --max-num-seqs 16                  # Fewer concurrent requests
 ```
@@ -252,41 +359,64 @@ Maximum cuda capability supported is 12.0
 ### GPU Metrics
 
 ```bash
-# Inside container
+# FP8 container
+docker exec vllm-qwen3-32b-fp8 nvidia-smi
+
+# BF16 container
 docker exec vllm-qwen3-32b nvidia-smi
 
-# vLLM metrics
+# vLLM metrics (both use same port)
 curl http://localhost:8000/metrics
 ```
 
 ### Key Metrics to Watch
-- **Memory Usage:** Should be ~80-95% of allocated
+
+**FP8 Configuration:**
+- **Memory Usage:** ~98 GB total (~32 GB model + 66 GB KV cache)
 - **GPU Utilization:** 50-90% typical (memory-bandwidth bound)
 - **Throughput:** Check tokens/sec in metrics
-- **Queue Depth:** Monitor pending requests
+- **Queue Depth:** Can handle 64 concurrent requests
+- **KV Cache:** 271,360 tokens capacity
+
+**BF16 Configuration:**
+- **Memory Usage:** ~93 GB total (~65 GB model + 28 GB KV cache)
+- **GPU Utilization:** 50-90% typical (memory-bandwidth bound)
+- **Throughput:** Check tokens/sec in metrics
+- **Queue Depth:** Can handle 48 concurrent requests
+- **KV Cache:** Smaller capacity than FP8
 
 ## Known Limitations
 
 1. **Memory Bandwidth Bottleneck:** 273 GB/s limits token generation speed (~3-4 tokens/sec single request)
 2. **CUDA Graphs:** Limited capture sizes (max 96 vs 512 on datacenter GPUs) due to GB10 architecture
 3. **Single-Request Latency:** Optimized for throughput over latency; batching is essential for performance
-4. **Context Length:** 24K configured (vs 32K native) to ensure adequate KV cache for concurrent requests
+4. **Context Length:**
+   - FP8: Full 32K native support
+   - BF16: 24K configured (vs 32K native) due to KV cache memory constraints
 
 ## References
 
-- **Model:** https://huggingface.co/Qwen/Qwen3-32B
+- **Model (FP8):** https://huggingface.co/Qwen/Qwen3-32B-FP8
+- **Model (BF16):** https://huggingface.co/Qwen/Qwen3-32B
 - **vLLM Docs:** https://docs.vllm.ai
 - **NVIDIA Container:** https://docs.nvidia.com/deeplearning/frameworks/vllm-release-notes/rel-25-09.html
 - **DGX Spark Docs:** https://docs.nvidia.com/dgx/dgx-spark/
 
 ## Version History
 
+- **2025-11-07:** Added FP8 configuration as primary recommendation
+  - FP8 model: Qwen/Qwen3-32B-FP8 (32GB model, 66GB KV cache, 64 concurrent seqs)
+  - BF16 model: Qwen/Qwen3-32B (65GB model, 28GB KV cache, 48 concurrent seqs)
+  - Container: nvcr.io/nvidia/vllm:25.09-py3
+  - Recommendation: Use FP8 for optimal DGX Spark performance
+
 - **2025-11-06:** Initial configuration for DGX Spark with NVIDIA container 25.09
-- Model: Qwen3-32B (full BF16)
-- Container: nvcr.io/nvidia/vllm:25.09-py3
-- Status: Working configuration documented
+  - Model: Qwen3-32B (full BF16)
+  - Container: nvcr.io/nvidia/vllm:25.09-py3
+  - Status: Working configuration documented
 
 ---
 
-**Last Updated:** 2025-11-06
+**Last Updated:** 2025-11-07
 **Tested On:** NVIDIA DGX Spark (GB10), CUDA 13.0, vLLM 0.10.1.1
+**Recommended:** Use FP8 pre-quantized model for best performance

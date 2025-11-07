@@ -53,16 +53,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-This repository contains Docker Compose configurations for running GPU-accelerated inference services. Two services are available:
+This repository contains Docker Compose configurations for running GPU-accelerated inference services. Three services are available:
 
 1. **ollama** - General-purpose LLM inference server
-2. **vllm-qwen3-32b** - vLLM server running the Qwen3-32B model
+2. **vllm-qwen3-32b-fp8** - vLLM server running Qwen3-32B-FP8 (RECOMMENDED for DGX Spark)
+3. **vllm-qwen3-32b** - vLLM server running Qwen3-32B in BF16 (fallback option)
 
-Both services are configured to use all available NVIDIA GPU resources on the unified memory architecture.
+All services are configured to use all available NVIDIA GPU resources on the unified memory architecture.
 
 ## Common Commands
 
-### Start specific service
+### Start specific service (FP8 recommended)
+```bash
+docker compose --profile fp8 up -d vllm-qwen3-32b-fp8
+```
+
+### Start BF16 service (alternative)
 ```bash
 docker compose up -d vllm-qwen3-32b
 ```
@@ -107,22 +113,44 @@ docker compose restart [service-name]
 - Recommended production: 32K tokens for optimal performance
 
 **Memory Requirements by Precision:**
-- **FP16 (16-bit):** ~80 GB - NOT FEASIBLE on DGX Spark (128GB total shared memory)
-- **FP8 (8-bit):** ~40 GB - Recommended for DGX Spark
-- **INT4 (4-bit):** ~20 GB - Best for DGX Spark, leaves memory for KV cache and batching
+- **FP8 (8-bit):** ~32-40 GB - **RECOMMENDED** for DGX Spark (optimal balance of quality and performance)
+- **BF16 (16-bit):** ~65-80 GB - Feasible but limits KV cache and concurrent requests
+- **INT4 (4-bit):** ~20 GB - Alternative for maximum memory headroom
 
-**Recommended Quantization for DGX Spark:**
-Use FP8 or INT4 quantization to maximize available memory for KV cache and concurrent request handling.
+**Recommended Configuration for DGX Spark:**
+**Use the pre-quantized Qwen/Qwen3-32B-FP8 model** for best results. This provides excellent quality with ~32GB memory footprint, leaving ample space for KV cache (66GB+) and high concurrent request handling (up to 64 sequences).
 
 ## Service Details
 
-### vllm-qwen3-32b
+### vllm-qwen3-32b-fp8 (RECOMMENDED)
 - **Port:** 8000
-- **Model:** Qwen/Qwen3-32B
-- **Current Config:**
-  - Max context: 16384 tokens
-  - GPU memory utilization: 55% (~70.4 GB of 128 GB)
+- **Model:** Qwen/Qwen3-32B-FP8 (pre-quantized)
+- **Profile:** `fp8` (use `docker compose --profile fp8 up -d vllm-qwen3-32b-fp8`)
+- **Configuration:**
+  - Max context: 32,000 tokens (native model support)
+  - GPU memory utilization: 90%
+  - Model memory: ~32 GB
+  - KV cache memory: ~66 GB (271,360 tokens)
+  - Max concurrent sequences: 64
+  - Max batched tokens: 16,384
+  - Features: prefix caching enabled, chunked prefill
   - Cache location: /opt/hf (mounted to container)
+- **Performance:**
+  - KV cache supports 8.48x concurrency at full 32K context
+  - Optimal for high-throughput batch processing
+- **Environment:** Requires HF_TOKEN in .env file
+
+### vllm-qwen3-32b (Alternative - BF16)
+- **Port:** 8000 (conflicts with FP8 service - use one or the other)
+- **Model:** Qwen/Qwen3-32B (BF16 precision)
+- **Configuration:**
+  - Max context: 24,000 tokens
+  - GPU memory utilization: 85%
+  - Model memory: ~65 GB
+  - Max concurrent sequences: 48
+  - Max batched tokens: 16,384
+  - Cache location: /opt/hf (mounted to container)
+- **Use Case:** When FP8 quantization quality concerns exist (rarely needed)
 - **Environment:** Requires HF_TOKEN in .env file
 
 ### ollama
@@ -184,32 +212,41 @@ Use FP8 or INT4 quantization to maximize available memory for KV cache and concu
 
 ### Benchmark-Informed Configuration
 
-Based on community benchmarks, optimal vLLM configuration for Qwen3-32B:
+**Primary Recommendation - Pre-Quantized FP8 Model:**
+```bash
+vllm serve Qwen/Qwen3-32B-FP8 \
+  --max-model-len 32000 \
+  --gpu-memory-utilization 0.90 \
+  --max-num-batched-tokens 16384 \
+  --max-num-seqs 64 \
+  --enable-prefix-caching \
+  --trust-remote-code
+```
 
+**Benefits of FP8 Pre-Quantized:**
+- Official quantization by Qwen team (validated quality)
+- ~32GB model footprint vs ~65GB for BF16
+- 66GB available for KV cache (2x more than BF16)
+- Supports 64 concurrent sequences vs 48 for BF16
+- Faster loading and inference
+- Minimal quality degradation (<1% on benchmarks)
+
+**Alternative - BF16 Full Precision:**
 ```bash
 vllm serve Qwen/Qwen3-32B \
-  --max-model-len 32000 \
+  --max-model-len 24000 \
   --gpu-memory-utilization 0.85 \
-  --max-num-batched-tokens 8192 \
-  --max-num-seqs 32 \
-  --enable-chunked-prefill \
+  --max-num-batched-tokens 16384 \
+  --max-num-seqs 48 \
   --enable-prefix-caching \
   --dtype bfloat16 \
   --trust-remote-code
 ```
 
-**For FP8 Quantization (Recommended):**
-```bash
-vllm serve Qwen/Qwen3-32B \
-  --quantization fp8 \
-  --max-model-len 32000 \
-  --gpu-memory-utilization 0.90 \
-  --max-num-batched-tokens 16384 \
-  --max-num-seqs 64 \
-  --enable-chunked-prefill \
-  --enable-prefix-caching \
-  --trust-remote-code
-```
+**When to use BF16:**
+- Extremely quality-sensitive applications (rare)
+- Lower concurrency requirements acceptable
+- Willing to trade throughput for marginal quality gain
 
 ### Performance Expectations
 
@@ -220,11 +257,21 @@ vllm serve Qwen/Qwen3-32B \
 - Throughput scales with batching: 1 request = ~20 tps, 32 requests = ~300+ tps aggregate
 
 **Optimization Strategy:**
-1. Use FP8 or INT4 quantization to free memory
+1. **Use pre-quantized Qwen/Qwen3-32B-FP8 model** (primary recommendation)
 2. Enable prefix caching for repeated prompt patterns
-3. Maximize batch size with higher memory utilization
-4. Use chunked prefill for long input sequences
+3. Maximize batch size with higher memory utilization (0.90)
+4. Leverage large KV cache from FP8's smaller footprint
 5. Monitor memory usage and adjust max-model-len if needed
+
+**Performance Comparison:**
+| Metric | FP8 (Recommended) | BF16 (Alternative) |
+|--------|-------------------|-------------------|
+| Model Memory | ~32 GB | ~65 GB |
+| KV Cache | ~66 GB | ~28 GB |
+| Max Context | 32,000 tokens | 24,000 tokens |
+| Max Concurrent Seqs | 64 | 48 |
+| Quality vs BF16 | ~99% | 100% (baseline) |
+| Throughput | Higher | Lower |
 
 ### Key vLLM Parameters Reference
 
@@ -252,7 +299,12 @@ Detailed configuration guides for deployed models:
 
 ## Monitoring and Troubleshooting
 
-**Check memory usage:**
+**Check memory usage (FP8):**
+```bash
+docker exec vllm-qwen3-32b-fp8 nvidia-smi
+```
+
+**Check memory usage (BF16):**
 ```bash
 docker exec vllm-qwen3-32b nvidia-smi
 ```
