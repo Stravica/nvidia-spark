@@ -74,7 +74,7 @@ Max Sequences: 48
 - Docs: `http://localhost:8000/docs`
 - Metrics: `http://localhost:8000/metrics`
 
-### 2. vLLM + Qwen3-32B-FP8 (Port 8001) - Optional
+### 2. vLLM + Qwen3-32B-FP8 (Port 8000) - Optional
 
 FP8 quantized version for maximum throughput and concurrency (requires profile flag to enable).
 
@@ -104,8 +104,8 @@ docker compose down vllm-qwen3-32b
 # Start FP8 service
 docker compose --profile fp8 up -d vllm-qwen3-32b-fp8
 
-# API available on port 8001
-curl http://localhost:8001/health
+# API available on same port 8000
+curl http://localhost:8000/health
 ```
 
 ### 3. Ollama (Port 11434)
@@ -289,9 +289,9 @@ curl -X POST http://localhost:8000/v1/chat/completions \
   }'
 ```
 
-**Using FP8 Model (if running on port 8001):**
+**Using FP8 Model (when FP8 service is running):**
 ```bash
-curl -X POST http://localhost:8001/v1/completions \
+curl -X POST http://localhost:8000/v1/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "Qwen/Qwen3-32B-FP8",
@@ -517,7 +517,7 @@ The DGX Spark's 273 GB/s memory bandwidth is the primary bottleneck (vs 900+ GB/
 
 | Feature | Qwen3-32B (BF16) | Qwen3-32B-FP8 |
 |---------|------------------|---------------|
-| **Port** | 8000 | 8001 |
+| **Port** | 8000 | 8000 |
 | **Precision** | BF16 (16-bit) | FP8 (8-bit) |
 | **Model Size** | 61.03 GB | 32.04 GB (47% less) |
 | **KV Cache** | 35.3 GB (144K tokens) | 66.25 GB (271K tokens) |

@@ -65,7 +65,7 @@ services:
     container_name: vllm-qwen3-32b-fp8
     restart: unless-stopped
     ports:
-      - "8001:8000"
+      - "8000:8000"
     environment:
       HF_TOKEN: "${HF_TOKEN}"
       HUGGING_FACE_HUB_TOKEN: "${HF_TOKEN}"
