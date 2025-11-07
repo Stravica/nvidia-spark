@@ -2,319 +2,362 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Host Information
+## Repository Overview
 
-**Host:** Nvidia DGX Spark
-**Hostname:** spark.thefootonline.local
+**Purpose:** Multi-provider GPU inference platform for NVIDIA DGX Spark (GB10 Grace Blackwell)
 
-## Hardware Specifications
+**Current Focus:** Qwen3-32B-FP8 model deployment using vLLM and Ollama providers
 
-### NVIDIA DGX Spark - GB10 Grace Blackwell Superchip
+**Hardware:** NVIDIA DGX Spark with 128GB unified memory, 273 GB/s bandwidth
 
-**Processor:**
+---
+
+## Hardware
+
+**NVIDIA DGX Spark - GB10 Grace Blackwell Superchip**
+
+**Key Specifications:**
+- **Hostname:** spark.thefootonline.local
 - **CPU:** 20-core Arm (10 Cortex-X925 + 10 Cortex-A725)
-- **GPU:** NVIDIA Blackwell Architecture
-  - 6,144 CUDA cores
-  - 5th Gen Tensor Cores
-  - 4th Gen RT Cores
-  - 2 Copy Engines (simultaneous data transfers)
-
-**Memory Architecture:**
-- **Total Memory:** 128 GB LPDDR5x unified system memory
-- **Memory Bandwidth:** 273 GB/s (shared between CPU and GPU)
-- **Interface:** 256-bit, 4266 MHz
-- **Channels:** 16 channels LPDDR5X 8533
-- **Key Feature:** Coherent unified memory - no separate VRAM, entire 128GB pool available to GPU without system-to-VRAM transfer overhead
-
-**AI Performance:**
-- Up to 1 PFLOP sparse FP4 tensor performance
-- Up to 1,000 TOPS (trillion operations per second) inference
-- Supports AI models up to 200 billion parameters (single device)
-- Can cluster 2 units for up to 405 billion parameter models
-
-**Storage:**
-- 1 TB or 4 TB NVMe M.2 with self-encryption
-
-**Networking:**
-- 1x RJ-45 (10 GbE)
-- ConnectX-7 Smart NIC
-- 2x QSFP Network connectors (ConnectX-7) - 200 Gbps aggregate
-- Wi-Fi 7, Bluetooth 5.4
-
-**Power:**
-- TDP: 140W (GB10 SOC)
-- Total Power: 240W external PSU (required - do not substitute)
-- Operating temp: 0°C to 35°C (32°F to 95°F)
+- **GPU:** NVIDIA Blackwell (6,144 CUDA cores, 5th Gen Tensor Cores)
+- **Memory:** 128 GB LPDDR5x unified (273 GB/s bandwidth)
+- **Key Feature:** Coherent unified memory - no separate VRAM
 
 **Performance Characteristics:**
-- **Bottleneck:** Memory bandwidth (273 GB/s) is the primary limiting factor for inference
-- **Thermal:** Excellent sustained performance without throttling due to external PSU design
-- **Best Use Case:** Prototyping, experimentation, smaller model serving with batching
+- **Bottleneck:** Memory bandwidth (273 GB/s) is the primary limiting factor
+- **Optimization:** FP8 quantization + batching + caching essential
+- **Best Use Case:** Prototyping, experimentation, model serving with batching
 
-## Overview
+**Full hardware documentation:** `docs/nvidia-spark.md`
 
-This repository contains Docker Compose configurations for running GPU-accelerated inference services. Three services are available:
+---
 
-1. **ollama** - General-purpose LLM inference server
-2. **vllm-qwen3-32b-fp8** - vLLM server running Qwen3-32B-FP8 (RECOMMENDED for DGX Spark)
-3. **vllm-qwen3-32b** - vLLM server running Qwen3-32B in BF16 (fallback option)
+## Available Services
 
-All services are configured to use all available NVIDIA GPU resources on the unified memory architecture.
+### 1. vLLM: Qwen3-32B-FP8 (Port 8000)
+
+High-performance inference with OpenAI-compatible API.
+
+**Configuration:**
+- **Model:** `Qwen/Qwen3-32B-FP8` (official pre-quantized)
+- **Memory:** ~32 GB model, ~66 GB KV cache
+- **Context:** 32,000 tokens
+- **Concurrency:** 64 concurrent requests
+- **Performance:** ~6-7 tok/s (single), ~300-400 tok/s (batched)
+
+**Documentation:** `docs/vllm/qwen3-32b-fp8.md`
+
+### 2. Ollama: Qwen3-32B-FP8 (Port 11434)
+
+Simple inference with native Ollama API.
+
+**Configuration:**
+- **Model:** `qwen3:32b-q8_0` (Q8_0 quantization)
+- **Memory:** ~35-40 GB model, ~20-25 GB KV cache
+- **Context:** 32,768 tokens
+- **Concurrency:** 8 concurrent requests
+- **Performance:** ~5-8 tok/s (single), ~40-80 tok/s (batched)
+
+**Documentation:** `docs/ollama/qwen3-32b-fp8.md`
+
+---
 
 ## Common Commands
 
-### Start specific service (FP8 recommended)
+### Service Management
+
 ```bash
-docker compose --profile fp8 up -d vllm-qwen3-32b-fp8
+# Start services
+docker compose up -d vllm-qwen3-32b-fp8       # vLLM
+docker compose up -d ollama-qwen3-32b-fp8     # Ollama
+
+# View logs
+docker compose logs -f <service-name>
+
+# Stop services
+docker compose stop <service-name>
+
+# Restart
+docker compose restart <service-name>
+
+# Check status
+docker compose ps
 ```
 
-### Start BF16 service (alternative)
+### Monitoring
+
 ```bash
-docker compose up -d vllm-qwen3-32b
+# GPU status (host)
+nvidia-smi
+
+# GPU status (vLLM container)
+docker exec vllm-qwen3-32b-fp8 nvidia-smi
+
+# GPU status (Ollama container)
+docker exec ollama-qwen3-32b-fp8 nvidia-smi
+
+# vLLM metrics
+curl http://localhost:8000/metrics
+
+# Ollama model status
+docker exec ollama-qwen3-32b-fp8 ollama ps
+
+# Container stats
+docker stats <service-name>
 ```
 
-### Start all services
+### Testing
+
 ```bash
-docker compose up -d
+# Test vLLM (OpenAI-compatible)
+curl -X POST http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model": "Qwen/Qwen3-32B-FP8", "messages": [{"role": "user", "content": "Hello!"}]}'
+
+# Test Ollama (native)
+curl http://localhost:11434/api/chat \
+  -d '{"model": "qwen3-32b-fp8", "messages": [{"role": "user", "content": "Hello!"}]}'
 ```
 
-### Stop services
+---
+
+## Service Naming Pattern
+
+All services follow: `{provider}-{model}-{quantization}`
+
+**Examples:**
+- `vllm-qwen3-32b-fp8` - vLLM with Qwen3-32B FP8
+- `ollama-qwen3-32b-fp8` - Ollama with Qwen3-32B Q8_0
+
+**Note:** Quantization indicated by service name only (no Docker Compose profiles used)
+
+---
+
+## Configuration Files
+
+### Docker Compose Services
+
+**Location:** `docker-compose.yml`
+
+Both services configured with:
+- GPU resource allocation (all GPUs)
+- Environment variables
+- Volume mounts for model storage
+- Restart policies
+
+### Environment Variables
+
+**Location:** `.env` (create if not exists)
+
 ```bash
-docker compose down
+HF_TOKEN=hf_your_token_here  # Required for vLLM
 ```
 
-### View logs
-```bash
-docker compose logs -f [service-name]
-```
+### Ollama Modelfile
 
-### Restart a service
-```bash
-docker compose restart [service-name]
-```
+**Location:** `models/ollama/Modelfile-qwen3-32b-fp8`
 
-## Model Specifications
+Defines:
+- Base model (`qwen3:32b-q8_0`)
+- Context length (32,768 tokens)
+- Batch size (512)
+- GPU allocation (99 layers)
+- System prompt
 
-### Qwen3-32B
-
-**Architecture:**
-- **Parameters:** 32.8 billion parameters
-- **Layers:** 64 transformer layers
-- **Attention:** Grouped Query Attention (GQA)
-  - 64 query heads
-  - 8 key-value heads
-- **Positional Encoding:** Rotary Positional Embeddings (RoPE)
-- **Activation Function:** SwiGLU
-- **Normalization:** RMSNorm with pre-normalization
-
-**Context Length:**
-- Native: 32,768 tokens
-- Extended (with YaRN): 131,072 tokens
-- Recommended production: 32K tokens for optimal performance
-
-**Memory Requirements by Precision:**
-- **FP8 (8-bit):** ~32-40 GB - **RECOMMENDED** for DGX Spark (optimal balance of quality and performance)
-- **BF16 (16-bit):** ~65-80 GB - Feasible but limits KV cache and concurrent requests
-- **INT4 (4-bit):** ~20 GB - Alternative for maximum memory headroom
-
-**Recommended Configuration for DGX Spark:**
-**Use the pre-quantized Qwen/Qwen3-32B-FP8 model** for best results. This provides excellent quality with ~32GB memory footprint, leaving ample space for KV cache (66GB+) and high concurrent request handling (up to 64 sequences).
-
-## Service Details
-
-### vllm-qwen3-32b-fp8 (RECOMMENDED)
-- **Port:** 8000
-- **Model:** Qwen/Qwen3-32B-FP8 (pre-quantized)
-- **Profile:** `fp8` (use `docker compose --profile fp8 up -d vllm-qwen3-32b-fp8`)
-- **Configuration:**
-  - Max context: 32,000 tokens (native model support)
-  - GPU memory utilization: 90%
-  - Model memory: ~32 GB
-  - KV cache memory: ~66 GB (271,360 tokens)
-  - Max concurrent sequences: 64
-  - Max batched tokens: 16,384
-  - Features: prefix caching enabled, chunked prefill
-  - Cache location: /opt/hf (mounted to container)
-- **Performance:**
-  - KV cache supports 8.48x concurrency at full 32K context
-  - Optimal for high-throughput batch processing
-- **Environment:** Requires HF_TOKEN in .env file
-
-### vllm-qwen3-32b (Alternative - BF16)
-- **Port:** 8000 (conflicts with FP8 service - use one or the other)
-- **Model:** Qwen/Qwen3-32B (BF16 precision)
-- **Configuration:**
-  - Max context: 24,000 tokens
-  - GPU memory utilization: 85%
-  - Model memory: ~65 GB
-  - Max concurrent sequences: 48
-  - Max batched tokens: 16,384
-  - Cache location: /opt/hf (mounted to container)
-- **Use Case:** When FP8 quantization quality concerns exist (rarely needed)
-- **Environment:** Requires HF_TOKEN in .env file
-
-### ollama
-- **Port:** 11434
-- **Keep alive:** 30 minutes after last use
-- **Model storage:** /opt/ollama (mounted to container)
-
-## vLLM Optimization for DGX Spark + Qwen3-32B
-
-### Critical Optimization Parameters
-
-**Memory Management:**
-```bash
---gpu-memory-utilization 0.85-0.90
-```
-- **Current:** 0.55 (too conservative)
-- **Recommended:** 0.85-0.90 for DGX Spark's unified memory
-- DGX Spark has no separate VRAM, so higher utilization is safe
-- Leaves ~13-19 GB for OS and overhead
-
-**Context Length:**
-```bash
---max-model-len 32000
-```
-- **Current:** 16384 tokens
-- **Recommended:** 32000 tokens (Qwen3-32B native support)
-- Matches model's native context window
-- Can reduce if more concurrent requests needed
-
-**Batch Processing:**
-```bash
---max-num-batched-tokens 8192
-```
-- **Recommended:** 8192-16384 for throughput optimization
-- Higher values improve throughput on memory-bandwidth-limited systems
-- Critical for DGX Spark where bandwidth (273 GB/s) is the bottleneck
-
-**Concurrent Requests:**
-```bash
---max-num-seqs 32
-```
-- Allows up to 32 concurrent sequences
-- Balance between throughput and latency
-- Adjust based on typical request patterns
-
-**Advanced Features:**
-```bash
---enable-chunked-prefill    # Improved batching for long prompts
---enable-prefix-caching     # Cache common prompt prefixes (big win for similar requests)
---dtype bfloat16           # Or use float16
-```
-
-**Quantization (Recommended for DGX Spark):**
-```bash
---quantization fp8          # Reduces memory to ~40GB
-# OR
---quantization awq          # 4-bit quantization to ~20GB
-```
-
-### Benchmark-Informed Configuration
-
-**Primary Recommendation - Pre-Quantized FP8 Model:**
-```bash
-vllm serve Qwen/Qwen3-32B-FP8 \
-  --max-model-len 32000 \
-  --gpu-memory-utilization 0.90 \
-  --max-num-batched-tokens 16384 \
-  --max-num-seqs 64 \
-  --enable-prefix-caching \
-  --trust-remote-code
-```
-
-**Benefits of FP8 Pre-Quantized:**
-- Official quantization by Qwen team (validated quality)
-- ~32GB model footprint vs ~65GB for BF16
-- 66GB available for KV cache (2x more than BF16)
-- Supports 64 concurrent sequences vs 48 for BF16
-- Faster loading and inference
-- Minimal quality degradation (<1% on benchmarks)
-
-**Alternative - BF16 Full Precision:**
-```bash
-vllm serve Qwen/Qwen3-32B \
-  --max-model-len 24000 \
-  --gpu-memory-utilization 0.85 \
-  --max-num-batched-tokens 16384 \
-  --max-num-seqs 48 \
-  --enable-prefix-caching \
-  --dtype bfloat16 \
-  --trust-remote-code
-```
-
-**When to use BF16:**
-- Extremely quality-sensitive applications (rare)
-- Lower concurrency requirements acceptable
-- Willing to trade throughput for marginal quality gain
-
-### Performance Expectations
-
-**DGX Spark Constraints:**
-- Memory bandwidth (273 GB/s) is primary bottleneck, not compute
-- Focus on maximizing batch sizes and caching
-- Expect ~2-20 tokens/sec per request depending on batch size
-- Throughput scales with batching: 1 request = ~20 tps, 32 requests = ~300+ tps aggregate
-
-**Optimization Strategy:**
-1. **Use pre-quantized Qwen/Qwen3-32B-FP8 model** (primary recommendation)
-2. Enable prefix caching for repeated prompt patterns
-3. Maximize batch size with higher memory utilization (0.90)
-4. Leverage large KV cache from FP8's smaller footprint
-5. Monitor memory usage and adjust max-model-len if needed
-
-**Performance Comparison:**
-| Metric | FP8 (Recommended) | BF16 (Alternative) |
-|--------|-------------------|-------------------|
-| Model Memory | ~32 GB | ~65 GB |
-| KV Cache | ~66 GB | ~28 GB |
-| Max Context | 32,000 tokens | 24,000 tokens |
-| Max Concurrent Seqs | 64 | 48 |
-| Quality vs BF16 | ~99% | 100% (baseline) |
-| Throughput | Higher | Lower |
-
-### Key vLLM Parameters Reference
-
-| Parameter | Purpose | Default | Recommended |
-|-----------|---------|---------|-------------|
-| `--gpu-memory-utilization` | Fraction of GPU memory to use | 0.90 | 0.85-0.90 |
-| `--max-model-len` | Maximum sequence length | Model max | 32000 |
-| `--max-num-batched-tokens` | Max tokens per batch iteration | 2048 | 8192-16384 |
-| `--max-num-seqs` | Max concurrent sequences | 256 | 32-64 |
-| `--block-size` | KV cache block size | 16 | 16 (8,16,32 valid) |
-| `--swap-space` | CPU swap space per GPU (GiB) | 4 | 0 (unified mem) |
-| `--enable-chunked-prefill` | Batch prefill with decode | false | true |
-| `--enable-prefix-caching` | Cache prompt prefixes | false | true |
-| `--quantization` | Quantization method | none | fp8 or awq |
-
-## Configuration
-
-Environment variables are stored in `.env` file:
-- `HF_TOKEN` - Hugging Face API token for model downloads
+---
 
 ## Model-Specific Documentation
 
 Detailed configuration guides for deployed models:
-- **Qwen3-32B:** See `docs/models/qwen3-32b.md` for complete deployment guide, troubleshooting, and performance tuning
 
-## Monitoring and Troubleshooting
+- **vLLM Qwen3-32B-FP8:** `docs/vllm/qwen3-32b-fp8.md`
+  - Service configuration
+  - Parameter tuning
+  - OpenAI API examples
+  - Performance optimization
+  - Troubleshooting
 
-**Check memory usage (FP8):**
-```bash
-docker exec vllm-qwen3-32b-fp8 nvidia-smi
+- **Ollama Qwen3-32B-FP8:** `docs/ollama/qwen3-32b-fp8.md`
+  - Service configuration
+  - Modelfile parameters
+  - Native API examples
+  - Performance tuning
+  - Troubleshooting
+
+- **Hardware & Docker:** `docs/nvidia-spark.md`
+  - DGX Spark specifications
+  - Docker setup
+  - GPU drivers
+  - Storage configuration
+  - General troubleshooting
+
+---
+
+## Provider Comparison
+
+| Feature | vLLM | Ollama |
+|---------|------|--------|
+| **Port** | 8000 | 11434 |
+| **API** | OpenAI-compatible | Native Ollama |
+| **Concurrency** | 64 requests | 8 requests |
+| **Throughput** | ~300-400 tok/s | ~40-80 tok/s |
+| **Memory** | ~98 GB | ~55-65 GB |
+| **Use Case** | Production, high-concurrency | Development, testing |
+
+**When to use vLLM:**
+- Production workloads
+- High concurrent load (>8 requests)
+- Maximum throughput required
+- OpenAI API compatibility needed
+
+**When to use Ollama:**
+- Development and testing
+- Low concurrency (<8 requests)
+- Simpler API preferred
+- Easy model switching needed
+
+---
+
+## Performance Expectations
+
+### vLLM (Qwen3-32B-FP8)
+
+- **Single Request:** ~6-7 tokens/sec
+- **Batched (16-32 concurrent):** ~100-200 tokens/sec aggregate
+- **Batched (48-64 concurrent):** ~300-400 tokens/sec aggregate
+- **Context:** Full 32K tokens supported
+- **KV Cache:** 66 GB, 271,360 tokens capacity
+
+### Ollama (Qwen3-32B-FP8)
+
+- **Single Request:** ~5-8 tokens/sec
+- **Batched (4 concurrent):** ~20-35 tokens/sec aggregate
+- **Batched (8 concurrent):** ~40-80 tokens/sec aggregate
+- **Context:** Full 32,768 tokens supported
+- **KV Cache:** ~20-25 GB
+
+### Performance Notes
+
+- Memory bandwidth (273 GB/s) is the primary bottleneck
+- Single-request performance limited by hardware, not software
+- Aggregate throughput scales with concurrent requests
+- Batching is essential for optimal performance
+- FP8/Q8 quantization provides ~99% quality of full precision
+
+---
+
+## Optimization Strategy
+
+For maximum performance on DGX Spark:
+
+1. **Use FP8/Q8 quantization** - Reduces memory bandwidth requirements
+2. **Maximize batching** - Send concurrent requests for better aggregate throughput
+3. **Enable prefix caching** - Reduces redundant computation (vLLM)
+4. **Right-size context** - Only use needed context length
+5. **Monitor memory usage** - Keep GPU memory 80-95% utilized
+
+---
+
+## Directory Structure
+
+```
+/opt/inference/
+├── docker-compose.yml              # Service definitions
+├── .env                           # Environment variables (HF_TOKEN)
+├── README.md                      # Platform overview
+├── CLAUDE.md                      # This file (AI assistant guide)
+├── docs/
+│   ├── nvidia-spark.md           # Hardware & Docker setup
+│   ├── vllm/
+│   │   └── qwen3-32b-fp8.md     # vLLM configuration
+│   └── ollama/
+│       └── qwen3-32b-fp8.md     # Ollama configuration
+└── models/
+    └── ollama/
+        └── Modelfile-qwen3-32b-fp8  # Ollama model config
 ```
 
-**Check memory usage (BF16):**
+**Storage Locations:**
+- `/opt/hf` - vLLM model cache (~32GB)
+- `/opt/ollama` - Ollama model storage (~35-40GB)
+
+---
+
+## Common Troubleshooting
+
+### Memory Issues
+
 ```bash
-docker exec vllm-qwen3-32b nvidia-smi
+# Check GPU memory
+nvidia-smi
+
+# Stop conflicting services
+docker compose stop <other-service>
+
+# Clean up Docker resources
+docker system prune -f
+
+# Restart service
+docker compose down && docker compose up -d <service-name>
 ```
 
-**View detailed vLLM metrics:**
+### Slow Performance
+
 ```bash
-curl http://localhost:8000/metrics
+# Verify GPU usage
+nvidia-smi
+
+# Check model is on GPU
+docker exec <service-name> nvidia-smi
+
+# For vLLM: send concurrent requests for batching
+# For Ollama: verify num_gpu=99 in Modelfile
 ```
 
-**Common Issues:**
-- **OOM errors:** Reduce `--max-model-len` or `--gpu-memory-utilization`
-- **Low throughput:** Increase `--max-num-batched-tokens` and enable caching
-- **High latency:** Reduce `--max-num-seqs` or batch size
+### Service Won't Start
+
+```bash
+# Check logs
+docker compose logs -f <service-name>
+
+# Verify GPU access
+docker run --rm --gpus all nvidia/cuda:12.0-base nvidia-smi
+
+# Check environment variables
+cat .env
+
+# Verify disk space
+df -h /opt
+```
+
+**Full troubleshooting:** See provider-specific documentation in `docs/`
+
+---
+
+## Important Notes
+
+- **Never substitute the 240W PSU** - DGX Spark requires specific power supply
+- **No Docker Compose profiles** - Services differentiated by name only
+- **Both services can't run simultaneously** - vLLM and Ollama both need significant GPU memory
+- **First-time loading is slow** - vLLM: ~9-10 min, Ollama: ~10-15 min
+- **Subsequent starts are faster** - Models cached locally
+- **Memory bandwidth is the bottleneck** - Not compute capacity
+- **Batching is essential** - Single-request performance is hardware-limited
+
+---
+
+## References
+
+- **README.md** - Platform overview and quick start
+- **docs/nvidia-spark.md** - Hardware specifications and Docker setup
+- **docs/vllm/qwen3-32b-fp8.md** - vLLM configuration and tuning
+- **docs/ollama/qwen3-32b-fp8.md** - Ollama configuration and tuning
+- **vLLM Documentation:** https://docs.vllm.ai
+- **Ollama Documentation:** https://docs.ollama.com
+- **DGX Spark Docs:** https://docs.nvidia.com/dgx/dgx-spark/
+
+---
+
+**Last Updated:** 2025-11-07
+**Repository Purpose:** Multi-provider inference platform for DGX Spark
+**Current Model:** Qwen3-32B-FP8 (vLLM + Ollama)
