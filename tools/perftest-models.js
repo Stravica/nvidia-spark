@@ -744,91 +744,61 @@ Metrics:
 // Report Generation
 // ============================================================================
 
-function generateMarkdownReport(modelResults, models, testDate) {
-  let report = `# vLLM Model Performance Comparison Report
+function generatePlainTextReport(modelResults, models, testDate) {
+  const lines = [];
 
-**Test Date:** ${testDate}
-**Hardware:** NVIDIA DGX Spark GB10 (128GB unified memory)
-**Test Iterations:** ${CONFIG.ITERATIONS}
-**vLLM Port:** ${CONFIG.VLLM_PORT}
-
----
-
-## Executive Summary
-
-This report compares three vLLM models on NVIDIA DGX Spark:
-- **Qwen3-32B-FP8** (Dense 32B) - Baseline
-- **Qwen3-30B-A3B-FP8** (MoE 30B, 3B active) - Efficiency-optimized
-- **Llama 3.3 70B-FP8** (Dense 70B) - Quality-optimized, long-context
-
----
-
-## Test Configuration
-
-### Models Tested
-
-`;
-
+  lines.push('================================================================================');
+  lines.push('vLLM Model Performance Comparison Report');
+  lines.push('================================================================================');
+  lines.push('');
+  lines.push(`Test Date: ${testDate}`);
+  lines.push(`Hardware: NVIDIA DGX Spark GB10 (128GB unified memory)`);
+  lines.push(`Test Iterations: ${CONFIG.ITERATIONS}`);
+  lines.push(`vLLM Port: ${CONFIG.VLLM_PORT}`);
+  lines.push('');
+  lines.push('Models Tested:');
   for (const model of models) {
-    report += `#### ${model.description}\n`;
-    report += `- **Service:** \`${model.serviceName}\`\n`;
-    report += `- **Model ID:** \`${model.modelId}\`\n`;
-    report += `- **Max Context:** ${(model.maxContext / 1000).toFixed(0)}K tokens\n\n`;
+    lines.push(`  - ${model.description}`);
+    lines.push(`    Service: ${model.serviceName}`);
+    lines.push(`    Model ID: ${model.modelId}`);
+    lines.push(`    Max Context: ${(model.maxContext / 1000).toFixed(0)}K tokens`);
   }
+  lines.push('');
 
-  report += `### Test Scenarios
-
-1. **Single-Request Latency**
-   - Fixed output: ${CONFIG.LATENCY_TEST_TOKENS} tokens
-   - Minimal input prompt
-   - Measures: TTFT, TPS, total time
-
-2. **Long-Context Handling**
-   - Variable input sizes: 1K, 8K, 16K, 32K tokens
-   - Fixed output: 100 tokens
-   - Measures: TTFT, total time, context processing
-
----
-
-## Results
-
-### 1. Single-Request Latency
-
-`;
-
+  // Latency Results
   if (modelResults.every(r => r.latency !== null)) {
-    report += `| Metric | ${models.map(m => m.description).join(' | ')} |\n`;
-    report += `|--------|${models.map(() => '--------').join('|')}|\n`;
+    lines.push('================================================================================');
+    lines.push('SINGLE-REQUEST LATENCY TEST RESULTS');
+    lines.push('================================================================================');
+    lines.push(`Test: Single-request inference | Iterations: ${CONFIG.ITERATIONS} | Max Tokens: ${CONFIG.LATENCY_TEST_TOKENS}`);
+    lines.push('');
 
-    // TTFT row
-    const ttfts = modelResults.map(r => formatValue(r.latency.ttft, 0, true));
-    report += `| **TTFT (ms)** | ${ttfts.join(' | ')} |\n`;
+    for (let i = 0; i < models.length; i++) {
+      const model = models[i];
+      const result = modelResults[i].latency;
 
-    // TPS row
-    const tpss = modelResults.map(r => formatValue(r.latency.tps, 2, true));
-    report += `| **TPS (tok/s)** | ${tpss.join(' | ')} |\n`;
+      lines.push(`${model.description}:`);
+      lines.push(`  TTFT (ms):       ${result.ttft.mean.toFixed(0)} ± ${result.ttft.stddev.toFixed(0)}`);
+      lines.push(`  TPS (tok/s):     ${result.tps.mean.toFixed(2)} ± ${result.tps.stddev.toFixed(2)}`);
+      lines.push(`  Tokens In:       ${result.tokensIn}`);
+      lines.push(`  Tokens Out:      ${result.tokensOut}`);
+      lines.push(`  Total Time (s):  ${result.totalTime.mean.toFixed(1)} ± ${result.totalTime.stddev.toFixed(1)}`);
+      lines.push('');
+    }
 
-    // Tokens In
-    const tokensIns = modelResults.map(r => r.latency.tokensIn);
-    report += `| **Tokens In** | ${tokensIns.join(' | ')} |\n`;
-
-    // Tokens Out
-    const tokensOuts = modelResults.map(r => r.latency.tokensOut);
-    report += `| **Tokens Out** | ${tokensOuts.join(' | ')} |\n`;
-
-    // Total Time
-    const totalTimes = modelResults.map(r => formatValue(r.latency.totalTime, 1, true));
-    report += `| **Total Time (s)** | ${totalTimes.join(' | ')} |\n\n`;
-
-    // Winner analysis
+    // Winner
     const tpsValues = modelResults.map(r => r.latency.tps.mean);
     const bestTpsIdx = tpsValues.indexOf(Math.max(...tpsValues));
-    report += `**Winner:** ${models[bestTpsIdx].description} (${tpsValues[bestTpsIdx].toFixed(2)} tok/s)\n\n`;
+    lines.push(`Winner: ${models[bestTpsIdx].description} (${tpsValues[bestTpsIdx].toFixed(2)} tok/s)`);
+    lines.push('');
   }
 
-  report += `### 2. Long-Context Performance
-
-`;
+  // Context Results
+  lines.push('================================================================================');
+  lines.push('LONG-CONTEXT TEST RESULTS');
+  lines.push('================================================================================');
+  lines.push(`Test: Context length handling | Iterations: ${CONFIG.ITERATIONS} | Output: 100 tokens`);
+  lines.push('');
 
   for (const contextTest of CONTEXT_TESTS) {
     const contextType = contextTest.type;
@@ -838,105 +808,41 @@ This report compares three vLLM models on NVIDIA DGX Spark:
 
     if (!hasData) continue;
 
-    report += `#### ${contextTest.name}\n\n`;
-    report += `| Metric | ${models.map(m => m.description).join(' | ')} |\n`;
-    report += `|--------|${models.map(() => '--------').join('|')}|\n`;
+    lines.push(`${contextTest.name.toUpperCase()}`);
+    lines.push('-'.repeat(80));
 
-    // TTFT row
-    const ttfts = modelResults.map(r => formatValue(r.contexts[contextType].ttft, 0, true));
-    report += `| **TTFT (ms)** | ${ttfts.join(' | ')} |\n`;
+    for (let i = 0; i < models.length; i++) {
+      const model = models[i];
+      const result = modelResults[i].contexts[contextType];
 
-    // Tokens In
-    const tokensIns = modelResults.map(r => r.contexts[contextType].tokensIn);
-    report += `| **Tokens In** | ${tokensIns.join(' | ')} |\n`;
+      lines.push(`${model.description}:`);
+      lines.push(`  TTFT (ms):       ${result.ttft.mean.toFixed(0)} ± ${result.ttft.stddev.toFixed(0)}`);
+      lines.push(`  Tokens In:       ${result.tokensIn}`);
+      lines.push(`  Total Time (s):  ${result.totalTime.mean.toFixed(1)} ± ${result.totalTime.stddev.toFixed(1)}`);
+      lines.push('');
+    }
 
-    // Total Time
-    const totalTimes = modelResults.map(r => formatValue(r.contexts[contextType].totalTime, 1, true));
-    report += `| **Total Time (s)** | ${totalTimes.join(' | ')} |\n\n`;
-
-    // Winner analysis
+    // Winner
     const ttftValues = modelResults.map(r => r.contexts[contextType].ttft.mean);
     const bestTtftIdx = ttftValues.indexOf(Math.min(...ttftValues));
-    report += `**Fastest TTFT:** ${models[bestTtftIdx].description} (${ttftValues[bestTtftIdx].toFixed(0)} ms)\n\n`;
+    lines.push(`Fastest TTFT: ${models[bestTtftIdx].description} (${ttftValues[bestTtftIdx].toFixed(0)} ms)`);
+    lines.push('');
   }
 
-  report += `---
+  lines.push('================================================================================');
+  lines.push('Test Environment:');
+  lines.push('  - Hardware: NVIDIA DGX Spark GB10 Grace Blackwell Superchip');
+  lines.push('  - CPU: 20-core Arm (10x Cortex-X925 + 10x Cortex-A725)');
+  lines.push('  - GPU: NVIDIA Blackwell (6,144 CUDA cores)');
+  lines.push('  - Memory: 128 GB LPDDR5x unified (273 GB/s bandwidth)');
+  lines.push('  - Software: vLLM v0.10.1.1+381074ae.nv25.09');
+  lines.push(`  - Date: ${testDate}`);
+  lines.push('================================================================================');
+  lines.push('');
+  lines.push('Report generated automatically by perftest-models.js');
+  lines.push('');
 
-## Analysis
-
-### Performance Characteristics
-
-`;
-
-  for (let i = 0; i < models.length; i++) {
-    const model = models[i];
-    const result = modelResults[i];
-
-    report += `#### ${model.description}\n\n`;
-
-    if (result.latency) {
-      report += `**Latency Performance:**\n`;
-      report += `- TTFT: ${result.latency.ttft.mean.toFixed(0)} ms (± ${result.latency.ttft.stddev.toFixed(0)} ms)\n`;
-      report += `- Throughput: ${result.latency.tps.mean.toFixed(2)} tok/s (± ${result.latency.tps.stddev.toFixed(2)} tok/s)\n`;
-      report += `- Total Time: ${result.latency.totalTime.mean.toFixed(1)} s\n\n`;
-    }
-
-    report += `**Context Processing:**\n`;
-    for (const contextTest of CONTEXT_TESTS) {
-      const contextType = contextTest.type;
-      if (result.contexts[contextType]) {
-        const ctx = result.contexts[contextType];
-        report += `- ${contextTest.name}: TTFT ${ctx.ttft.mean.toFixed(0)} ms, Total ${ctx.totalTime.mean.toFixed(1)} s\n`;
-      }
-    }
-    report += `\n`;
-  }
-
-  report += `---
-
-## Recommendations
-
-### Use Case Recommendations
-
-`;
-
-  // Find winners
-  const tpsValues = modelResults.map(r => r.latency?.tps.mean || 0);
-  const bestThroughputIdx = tpsValues.indexOf(Math.max(...tpsValues));
-  const worstThroughputIdx = tpsValues.indexOf(Math.min(...tpsValues));
-
-  report += `**Best Overall Throughput:** ${models[bestThroughputIdx].description}
-- ${tpsValues[bestThroughputIdx].toFixed(2)}x faster than baseline
-- Best for: High-concurrency workloads, API serving, batch processing
-
-**Best for Long-Context:** ${models.find(m => m.maxContext > 32000)?.description || models[0].description}
-- Supports up to ${Math.max(...models.map(m => m.maxContext)) / 1000}K tokens
-- Best for: Document analysis, code review, research papers
-
-**Best Quality:** ${models[worstThroughputIdx].description}
-- Largest model (70B parameters)
-- Best for: Complex reasoning, high-quality outputs, production use cases
-
-`;
-
-  report += `---
-
-## Test Environment
-
-- **Hardware:** NVIDIA DGX Spark GB10 Grace Blackwell Superchip
-  - CPU: 20-core Arm (10x Cortex-X925 + 10x Cortex-A725)
-  - GPU: NVIDIA Blackwell (6,144 CUDA cores)
-  - Memory: 128 GB LPDDR5x unified (273 GB/s bandwidth)
-- **Software:** vLLM v0.10.1.1+381074ae.nv25.09
-- **Test Tool:** perftest-models.js
-- **Date:** ${testDate}
-
----
-
-*Report generated automatically by perftest-models.js*
-`;
-
-  return report;
+  return lines.join('\n');
 }
 
 // ============================================================================
@@ -992,10 +898,10 @@ This report compares three vLLM models on NVIDIA DGX Spark:
       // Generate and save report
       const testDate = new Date().toISOString().split('T')[0];
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('.')[0];
-      const reportFilename = `model-comparison-${timestamp}.md`;
+      const reportFilename = `model-comparison-${timestamp}.txt`;
       const reportPath = `docs/reports/${reportFilename}`;
 
-      const reportContent = generateMarkdownReport(allResults, testedModels, testDate);
+      const reportContent = generatePlainTextReport(allResults, testedModels, testDate);
       writeFileSync(reportPath, reportContent, 'utf8');
 
       console.log(`\n📄 Report saved to: ${reportPath}`);
