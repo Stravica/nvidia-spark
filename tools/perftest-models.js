@@ -25,7 +25,7 @@ import { readFileSync } from 'node:fs';
 
 const CONFIG = {
   VLLM_PORT: 8000,
-  HEALTH_CHECK_TIMEOUT: 600000, // 10 minutes for first load (large models)
+  HEALTH_CHECK_TIMEOUT: 1800000, // 30 minutes for first load (large models with downloads)
   HEALTH_CHECK_INTERVAL: 3000,  // 3 seconds between checks
   WARMUP_TOKENS: 50,
   LATENCY_TEST_TOKENS: 500,
@@ -224,6 +224,7 @@ async function runVllmChatCompletion(modelId, prompt, maxTokens, temperature = 0
     max_tokens: maxTokens,
     temperature: temperature,
     stream: true,
+    stream_options: { include_usage: true },
   };
 
   const metrics = {
