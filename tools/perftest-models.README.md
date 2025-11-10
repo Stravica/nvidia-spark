@@ -1,6 +1,6 @@
 # perftest-models.js - vLLM Model Performance Testing Tool
 
-**Purpose:** Compare inference performance across multiple vLLM models on NVIDIA DGX Spark.
+**Purpose:** Automatically discover and test all vLLM models in docker-compose.yml
 
 **Location:** `/opt/inference/tools/perftest-models.js`
 
@@ -12,32 +12,7 @@ This tool performs comprehensive performance testing of vLLM models to measure:
 - **Single-request latency** - Time to first token (TTFT) and throughput (tokens/second)
 - **Long-context handling** - Performance with varying input sizes (1K, 8K, 16K, 32K tokens)
 
-The tool automatically manages Docker containers, runs tests with multiple iterations for statistical accuracy, and generates performance reports.
-
----
-
-## Models Tested
-
-### 1. Qwen3-32B-FP8 (Dense 32B - Baseline)
-- **Service:** `vllm-qwen3-32b-fp8`
-- **Model ID:** `Qwen/Qwen3-32B-FP8`
-- **Max Context:** 32,000 tokens
-- **Architecture:** Dense 32B parameter model
-- **Use Case:** Baseline reference performance
-
-### 2. Qwen3-30B-A3B-FP8 (MoE 30B - Efficiency)
-- **Service:** `vllm-qwen3-30b-a3b-fp8`
-- **Model ID:** `Qwen/Qwen3-30B-A3B-Instruct-2507-FP8`
-- **Max Context:** 32,768 tokens
-- **Architecture:** Mixture of Experts (MoE) - 30B total, 3B active per token
-- **Use Case:** High-efficiency inference, best throughput
-
-### 3. Llama 3.3 70B-FP8 (Dense 70B - Quality)
-- **Service:** `vllm-llama33-70b-fp8`
-- **Model ID:** `nvidia/Llama-3.3-70B-Instruct-FP8`
-- **Max Context:** 65,536 tokens
-- **Architecture:** Dense 70B parameter model
-- **Use Case:** Highest quality outputs, long-context analysis
+The tool automatically discovers all vLLM services in docker-compose.yml, manages Docker containers, runs tests with multiple iterations for statistical accuracy, and generates performance reports.
 
 ---
 
@@ -61,7 +36,7 @@ ITERATIONS: 3                      // Test runs per scenario (configurable via C
 **Purpose:** Measure throughput and time-to-first-token for single requests.
 
 **Configuration:**
-- **Input:** Minimal prompt (~50 tokens): "Write a detailed technical explanation of how neural network backpropagation works..."
+- **Input:** Minimal prompt (~50 tokens)
 - **Output:** 500 tokens (fixed)
 - **Temperature:** 0.7
 - **Iterations:** 3 (default)
@@ -87,25 +62,19 @@ ITERATIONS: 3                      // Test runs per scenario (configurable via C
 - **Tokens In:** Actual input token count
 - **Total Time:** End-to-end request duration
 
-**Context Generation:** Uses `generateContextPrompt()` to create repetitive text at ~4 characters per token.
-
 ---
 
 ## Understanding Test Results: Why Latency Tests Take Longer
 
 ### The Counterintuitive Result
 
-You may notice that the **Single-Request Latency test takes 3-4x LONGER** than even the **Very Long Context (32K tokens) test**:
-
-**Example Results:**
-- Latency test (50 input, 500 output): 80.7s total
-- 32K context test (18K input, 100 output): 24.3s total
+You may notice that the **Single-Request Latency test takes 3-4x LONGER** than even the **Very Long Context (32K tokens) test**.
 
 **Why?** The latency test generates **5x more output tokens** (500 vs 100).
 
 ### The Root Cause: Output Generation is the Bottleneck
 
-On the NVIDIA DGX Spark (and most inference hardware), **output generation is significantly slower than input processing**:
+On most inference hardware, **output generation is significantly slower than input processing**:
 
 #### Input Processing (Prefill Phase) - FAST ⚡
 - **Parallel processing:** All input tokens processed simultaneously
@@ -114,16 +83,8 @@ On the NVIDIA DGX Spark (and most inference hardware), **output generation is si
 
 #### Output Generation (Decode Phase) - SLOW 🐌
 - **Sequential processing:** One token generated at a time
-- **Memory bandwidth bottleneck:** DGX Spark's 273 GB/s bandwidth is the limiting factor
+- **Memory bandwidth bottleneck** is the limiting factor
 - **500 tokens takes 3-4x longer than 100 tokens**
-
-### Performance Breakdown
-
-| Model | Latency (500 out) | 32K Context (100 out) | Extra Time for 400 Tokens |
-|-------|-------------------|----------------------|---------------------------|
-| Qwen3-32B | 80.7s | 24.3s | +56.4s (400 tokens) |
-| Qwen3-30B-A3B | 12.2s | 4.2s | +8.0s (400 tokens) |
-| Llama 3.3 70B | 178.9s | 48.7s | +130.2s (400 tokens) |
 
 ### Why This Test Design Makes Sense
 
@@ -139,18 +100,17 @@ On the NVIDIA DGX Spark (and most inference hardware), **output generation is si
 ### Basic Usage
 
 ```bash
-# Test all three models (default 3 iterations each)
+# Test all discovered vLLM models (default 3 iterations each)
 ./perftest-models.js
+
+# Test only specific models (comma-separated, no spaces)
+./perftest-models.js model1,model2
 
 # Run with 5 iterations per test
 ./perftest-models.js --iterations 5
 
-# Skip specific models
-./perftest-models.js --skip qwen3-32b-fp8
-./perftest-models.js --skip llama33-70b-fp8
-
-# Skip multiple models
-./perftest-models.js --skip qwen3-32b-fp8 --skip qwen3-30b-a3b-fp8
+# Test specific models with custom iterations
+./perftest-models.js model1,model2 --iterations 10
 
 # Show help
 ./perftest-models.js --help
@@ -160,14 +120,13 @@ On the NVIDIA DGX Spark (and most inference hardware), **output generation is si
 
 | Option | Description | Default | Example |
 |--------|-------------|---------|---------|
+| `models` | Comma-separated list of model names (positional) | All discovered | `model1,model2` |
 | `--iterations <n>` | Number of test runs per scenario | 3 | `--iterations 5` |
-| `--skip <model>` | Skip testing a specific model | None | `--skip qwen3-32b-fp8` |
 | `--help` | Show help message | - | `--help` |
 
-**Available model names for `--skip`:**
-- `qwen3-32b-fp8`
-- `qwen3-30b-a3b-fp8`
-- `llama33-70b-fp8`
+**Model names:** Derived from service names by removing the `vllm-` prefix
+- Service: `vllm-qwen3-32b-fp8` → Model name: `qwen3-32b-fp8`
+- Service: `vllm-llama33-70b-fp8` → Model name: `llama33-70b-fp8`
 
 ---
 
@@ -188,26 +147,41 @@ Reports are automatically saved to: `docs/reports/model-comparison-{timestamp}.t
 **Filename format:** `model-comparison-2025-11-09T14-30-45.txt`
 
 **Report contents:**
-- Complete test output (stdout capture)
+- Exact stdout capture (everything you see in the terminal)
 - Latency test results table
 - Long-context test results tables
-- Performance comparison across all models
+- Performance comparison across all tested models
+
+---
+
+## Model Discovery
+
+Models are **automatically discovered** from `docker-compose.yml`:
+
+1. Finds all services matching pattern `vllm-*`
+2. Extracts model ID from `command:` array (after "serve")
+3. Extracts max context length from `--max-model-len` argument
+4. Builds model objects dynamically
+
+**No hardcoded model list** - works with any vLLM services you add to docker-compose.yml
 
 ---
 
 ## Test Execution Flow
 
-1. **Service Discovery:** Validates all model services exist in docker-compose.yml
-2. **Container Management:** Stops all running inference containers
-3. **Per-Model Testing:**
+1. **CLI Parsing:** Parse arguments and determine which models to test
+2. **Service Discovery:** Scan docker-compose.yml for all vLLM services
+3. **Model Filtering:** If specific models requested, filter the list
+4. **Container Management:** Stop all running inference containers
+5. **Per-Model Testing:**
    - Start model container
    - Wait for health check (up to 30 minutes for first load)
    - Pre-warm model with small request
    - Run latency tests (3 iterations)
    - Run context tests (3 iterations per context size)
    - Stop model container
-4. **Results Analysis:** Calculate statistics (mean, stddev, min, max)
-5. **Report Generation:** Display tables and save report file
+6. **Results Analysis:** Calculate statistics (mean, stddev, min, max)
+7. **Report Generation:** Save exact stdout to report file
 
 ---
 
@@ -271,13 +245,13 @@ Reports are automatically saved to: `docs/reports/model-comparison-{timestamp}.t
 ## Troubleshooting
 
 ### Models Not Found
-- **Error:** "Service {name} not found in docker-compose.yml"
-- **Solution:** Verify service names in `docker-compose.yml` match MODELS configuration
+- **Error:** "Models not found: {names}"
+- **Solution:** Check service names in docker-compose.yml match requested models
 
 ### Health Check Timeout
 - **Error:** "{model} health check timeout after 1800s"
 - **Cause:** First-time model download taking longer than 30 minutes
-- **Solution:** Model may be very large (70B+), check container logs: `docker compose logs -f {service}`
+- **Solution:** Check container logs: `docker compose logs -f {service}`
 
 ### Port Conflicts
 - **Error:** "Connection refused" on port 8000
@@ -310,11 +284,14 @@ Results are aggregated across iterations to provide:
 ### Capture Full Output
 
 ```bash
-# Save complete test output to file
-./perftest-models.js | tee test-output.txt
+# Output is already saved to file automatically
+./perftest-models.js
+
+# Additionally capture to custom location
+./perftest-models.js | tee custom-output.txt
 
 # Run in headless environment
-./perftest-models.js --iterations 1 > results.txt 2>&1
+./perftest-models.js --iterations 1
 ```
 
 ### Parse Results
@@ -326,19 +303,42 @@ Reports are saved to `docs/reports/` automatically. Parse these files for:
 
 ---
 
-## Related Documentation
+## Adding New Models
 
-- **CLAUDE.md** - Main repository guide with model overview
-- **docs/vllm/qwen3-32b-fp8.md** - Qwen3-32B-FP8 configuration details
-- **docs/vllm/qwen3-30b-a3b-fp8.md** - Qwen3-30B-A3B-FP8 configuration details
-- **docs/vllm/llama33-70b-fp8.md** - Llama 3.3 70B-FP8 configuration details
-- **docs/nvidia-spark.md** - Hardware specifications and Docker setup
+To add a new model for testing:
+
+1. Add vLLM service to `docker-compose.yml`:
+```yaml
+vllm-your-model:
+  image: nvcr.io/nvidia/vllm:25.09-py3
+  command:
+    - vllm
+    - serve
+    - your/model-id        # Model will be auto-detected
+    - --max-model-len
+    - "32000"              # Context length will be extracted
+    # ... other vLLM args
+```
+
+2. Run the test tool:
+```bash
+./perftest-models.js                    # Tests all including new model
+./perftest-models.js your-model         # Test only new model
+```
+
+**No code changes needed!** The tool automatically discovers and tests any vLLM service.
 
 ---
 
 ## Version History
 
-- **2025-11-09:** Initial version with automatic report generation
+- **2025-11-09:** Dynamic service discovery
+  - Removed hardcoded model list
+  - Added automatic service discovery from docker-compose.yml
+  - Simplified CLI (comma-separated models, removed --skip)
+  - Changed to exact stdout capture for reports
+
+- **2025-11-09:** Initial version
   - Added stream_options for usage statistics
   - Increased health check timeout to 30 minutes
   - Fixed context test token counting
@@ -346,5 +346,5 @@ Reports are saved to `docs/reports/` automatically. Parse these files for:
 ---
 
 **Last Updated:** 2025-11-09
-**Tool Version:** 1.0
+**Tool Version:** 2.0
 **Maintainer:** Stravica

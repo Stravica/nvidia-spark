@@ -3,21 +3,61 @@
 /**
  * Model Performance Testing CLI Tool
  *
- * Compares inference performance across multiple vLLM models:
- * - Qwen3-32B-FP8 (existing baseline)
- * - Qwen3-30B-A3B-FP8 (MoE model)
- * - Llama 3.3 70B-FP8 (large dense model)
+ * Dynamically tests all vLLM models found in docker-compose.yml
  *
  * Tests:
  * 1. Single-request latency (fixed 500 tokens output)
  * 2. Long-context handling (varying input: 1K, 8K, 16K, 32K tokens)
  *
- * Usage: ./perftest-models.js [options]
- * Example: ./perftest-models.js --iterations 3 --skip qwen3-32b-fp8
+ * Usage: ./perftest-models.js [models] [options]
+ * Examples:
+ *   ./perftest-models.js                        # Test all discovered models
+ *   ./perftest-models.js model1,model2          # Test specific models
+ *   ./perftest-models.js --iterations 5         # Custom iteration count
  */
 
 import { execSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
+
+// ============================================================================
+// Logger - Captures stdout for exact report generation
+// ============================================================================
+
+class Logger {
+  constructor() {
+    this.buffer = [];
+    this.originalLog = console.log;
+    this.originalWrite = process.stdout.write.bind(process.stdout);
+  }
+
+  start() {
+    const self = this;
+
+    // Intercept console.log
+    console.log = function(...args) {
+      const line = args.map(a => typeof a === 'string' ? a : String(a)).join(' ');
+      self.buffer.push(line + '\n');
+      self.originalLog.apply(console, args);
+    };
+
+    // Intercept process.stdout.write
+    process.stdout.write = function(chunk, encoding, callback) {
+      if (typeof chunk === 'string') {
+        self.buffer.push(chunk);
+      }
+      return self.originalWrite(chunk, encoding, callback);
+    };
+  }
+
+  stop() {
+    console.log = this.originalLog;
+    process.stdout.write = this.originalWrite;
+  }
+
+  getOutput() {
+    return this.buffer.join('');
+  }
+}
 
 // ============================================================================
 // Configuration
@@ -33,29 +73,8 @@ const CONFIG = {
   DOCKER_COMPOSE_PATH: '/opt/inference/docker-compose.yml',
 };
 
-const MODELS = [
-  {
-    name: 'qwen3-32b-fp8',
-    serviceName: 'vllm-qwen3-32b-fp8',
-    modelId: 'Qwen/Qwen3-32B-FP8',
-    description: 'Dense 32B (Baseline)',
-    maxContext: 32000,
-  },
-  {
-    name: 'qwen3-30b-a3b-fp8',
-    serviceName: 'vllm-qwen3-30b-a3b-fp8',
-    modelId: 'Qwen/Qwen3-30B-A3B-Instruct-2507-FP8',
-    description: 'MoE 30B (3B active)',
-    maxContext: 32768,
-  },
-  {
-    name: 'llama33-70b-fp8',
-    serviceName: 'vllm-llama33-70b-fp8',
-    modelId: 'nvidia/Llama-3.3-70B-Instruct-FP8',
-    description: 'Dense 70B (Long-context)',
-    maxContext: 65536,
-  },
-];
+// Models are dynamically discovered from docker-compose.yml
+// No hardcoded model list needed
 
 // Latency test: Fixed output, minimal input
 const LATENCY_TEST = {
@@ -122,36 +141,78 @@ function generateContextPrompt(tokenCount) {
 // Service Discovery
 // ============================================================================
 
-function parseDockerCompose() {
+function discoverVllmServices() {
   try {
     const content = readFileSync(CONFIG.DOCKER_COMPOSE_PATH, 'utf8');
-    const services = {};
+    const lines = content.split('\n');
+    const services = [];
 
-    for (const model of MODELS) {
-      const pattern = new RegExp(`^\\s+(${model.serviceName}):\\s*$`, 'm');
-      const match = content.match(pattern);
-      if (match) {
-        services[model.name] = model.serviceName;
+    let currentService = null;
+    let commandArgs = [];
+
+    for (const line of lines) {
+      // Detect vLLM service start (2 spaces indentation)
+      if (/^  vllm-[^:]+:/.test(line)) {
+        // Save previous service if complete
+        if (currentService) {
+          processServiceCommand(currentService, commandArgs);
+          if (currentService.modelId) {
+            services.push(currentService);
+          }
+        }
+
+        // Start new service
+        const serviceName = line.match(/^  (vllm-[^:]+):/)[1];
+        currentService = {
+          name: serviceName.replace('vllm-', ''),
+          serviceName: serviceName,
+          modelId: null,
+          description: serviceName.replace('vllm-', '').toUpperCase(),
+          maxContext: 32000
+        };
+        commandArgs = [];
       }
+      // Collect command arguments (6 spaces + dash)
+      else if (currentService && /^      - /.test(line)) {
+        const arg = line.trim().replace('- ', '');
+        commandArgs.push(arg);
+      }
+    }
+
+    // Save last service
+    if (currentService) {
+      processServiceCommand(currentService, commandArgs);
+      if (currentService.modelId) {
+        services.push(currentService);
+      }
+    }
+
+    if (services.length === 0) {
+      throw new Error('No vLLM services found in docker-compose.yml');
     }
 
     return services;
   } catch (error) {
-    throw new Error(`Failed to read docker-compose.yml: ${error.message}`);
+    throw new Error(`Failed to discover vLLM services: ${error.message}`);
   }
 }
 
-function validateServices(services, skipModels) {
-  const errors = [];
-
-  for (const model of MODELS) {
-    if (!skipModels.includes(model.name) && !services[model.name]) {
-      errors.push(`Service ${model.serviceName} not found`);
+function processServiceCommand(service, commandArgs) {
+  // Find model ID (after "serve")
+  for (let i = 0; i < commandArgs.length; i++) {
+    if (commandArgs[i] === 'serve' && i + 1 < commandArgs.length) {
+      service.modelId = commandArgs[i + 1];
+      break;
     }
   }
 
-  if (errors.length > 0) {
-    throw new Error(`Service validation failed:\n  - ${errors.join('\n  - ')}`);
+  // Find max-model-len
+  for (let i = 0; i < commandArgs.length; i++) {
+    if (commandArgs[i] === '--max-model-len' && i + 1 < commandArgs.length) {
+      const lenStr = commandArgs[i + 1].replace(/"/g, '');
+      service.maxContext = parseInt(lenStr, 10);
+      break;
+    }
   }
 }
 
@@ -676,30 +737,25 @@ function printContextResults(modelResults, models) {
 function parseArgs() {
   const args = process.argv.slice(2);
   const config = {
-    skipModels: [],
+    models: [],  // Empty = test all discovered models
     iterations: CONFIG.ITERATIONS,
   };
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
 
-    if (arg.startsWith('--')) {
-      const flag = arg.slice(2);
-
-      switch (flag) {
-        case 'skip':
-          config.skipModels.push(args[++i]);
-          break;
-        case 'iterations':
-          config.iterations = parseInt(args[++i], 10);
-          break;
-        case 'help':
-          printHelp();
-          process.exit(0);
-        default:
-          console.error(`Unknown option: --${flag}`);
-          process.exit(1);
-      }
+    if (arg === '--iterations') {
+      config.iterations = parseInt(args[++i], 10);
+    } else if (arg === '--help') {
+      printHelp();
+      process.exit(0);
+    } else if (arg.startsWith('--')) {
+      console.error(`Unknown option: ${arg}`);
+      console.error(`Use --help for usage information`);
+      process.exit(1);
+    } else {
+      // Comma-separated model list (positional argument)
+      config.models = arg.split(',').map(m => m.trim()).filter(m => m);
     }
   }
 
@@ -710,23 +766,23 @@ function printHelp() {
   console.log(`
 Model Performance Testing CLI Tool
 
-Compares inference performance across multiple vLLM models for NVIDIA DGX Spark.
+Dynamically tests all vLLM models found in docker-compose.yml
 
-Usage: ./perftest-models.js [options]
+Usage: ./perftest-models.js [models] [options]
+
+Arguments:
+  models               Comma-separated list of model names (e.g., model1,model2)
+                       If omitted, all discovered vLLM services will be tested
 
 Options:
   --iterations <n>     Number of test runs per test (default: ${CONFIG.ITERATIONS})
-  --skip <model-name>  Skip testing a specific model (can be used multiple times)
   --help               Show this help message
 
-Available Models:
-${MODELS.map(m => `  - ${m.name.padEnd(20)} ${m.description}`).join('\n')}
-
 Examples:
-  ./perftest-models.js                              # Test all models
-  ./perftest-models.js --iterations 5               # Run 5 iterations per test
-  ./perftest-models.js --skip qwen3-32b-fp8         # Skip baseline model
-  ./perftest-models.js --skip llama33-70b-fp8       # Skip 70B model
+  ./perftest-models.js                         # Test all discovered vLLM services
+  ./perftest-models.js model1,model2           # Test only specific models
+  ./perftest-models.js --iterations 5          # Test all with 5 iterations
+  ./perftest-models.js model1 --iterations 10  # Test specific model with 10 iterations
 
 Tests:
   1. Single-Request Latency - Fixed 500 token output with minimal input
@@ -737,112 +793,11 @@ Metrics:
   • TPS - Tokens Per Second (throughput, latency test only)
   • Tokens In/Out - Input and output token counts
   • Total Time - Full request duration
+
+Model Discovery:
+  Models are automatically discovered from ${CONFIG.DOCKER_COMPOSE_PATH}
+  All services matching the pattern 'vllm-*' will be detected
 `);
-}
-
-// ============================================================================
-// Report Generation
-// ============================================================================
-
-function generatePlainTextReport(modelResults, models, testDate) {
-  const lines = [];
-
-  lines.push('================================================================================');
-  lines.push('vLLM Model Performance Comparison Report');
-  lines.push('================================================================================');
-  lines.push('');
-  lines.push(`Test Date: ${testDate}`);
-  lines.push(`Hardware: NVIDIA DGX Spark GB10 (128GB unified memory)`);
-  lines.push(`Test Iterations: ${CONFIG.ITERATIONS}`);
-  lines.push(`vLLM Port: ${CONFIG.VLLM_PORT}`);
-  lines.push('');
-  lines.push('Models Tested:');
-  for (const model of models) {
-    lines.push(`  - ${model.description}`);
-    lines.push(`    Service: ${model.serviceName}`);
-    lines.push(`    Model ID: ${model.modelId}`);
-    lines.push(`    Max Context: ${(model.maxContext / 1000).toFixed(0)}K tokens`);
-  }
-  lines.push('');
-
-  // Latency Results
-  if (modelResults.every(r => r.latency !== null)) {
-    lines.push('================================================================================');
-    lines.push('SINGLE-REQUEST LATENCY TEST RESULTS');
-    lines.push('================================================================================');
-    lines.push(`Test: Single-request inference | Iterations: ${CONFIG.ITERATIONS} | Max Tokens: ${CONFIG.LATENCY_TEST_TOKENS}`);
-    lines.push('');
-
-    for (let i = 0; i < models.length; i++) {
-      const model = models[i];
-      const result = modelResults[i].latency;
-
-      lines.push(`${model.description}:`);
-      lines.push(`  TTFT (ms):       ${result.ttft.mean.toFixed(0)} ± ${result.ttft.stddev.toFixed(0)}`);
-      lines.push(`  TPS (tok/s):     ${result.tps.mean.toFixed(2)} ± ${result.tps.stddev.toFixed(2)}`);
-      lines.push(`  Tokens In:       ${result.tokensIn}`);
-      lines.push(`  Tokens Out:      ${result.tokensOut}`);
-      lines.push(`  Total Time (s):  ${result.totalTime.mean.toFixed(1)} ± ${result.totalTime.stddev.toFixed(1)}`);
-      lines.push('');
-    }
-
-    // Winner
-    const tpsValues = modelResults.map(r => r.latency.tps.mean);
-    const bestTpsIdx = tpsValues.indexOf(Math.max(...tpsValues));
-    lines.push(`Winner: ${models[bestTpsIdx].description} (${tpsValues[bestTpsIdx].toFixed(2)} tok/s)`);
-    lines.push('');
-  }
-
-  // Context Results
-  lines.push('================================================================================');
-  lines.push('LONG-CONTEXT TEST RESULTS');
-  lines.push('================================================================================');
-  lines.push(`Test: Context length handling | Iterations: ${CONFIG.ITERATIONS} | Output: 100 tokens`);
-  lines.push('');
-
-  for (const contextTest of CONTEXT_TESTS) {
-    const contextType = contextTest.type;
-    const hasData = modelResults.every(r =>
-      r.contexts[contextType] && r.contexts[contextType].successCount > 0
-    );
-
-    if (!hasData) continue;
-
-    lines.push(`${contextTest.name.toUpperCase()}`);
-    lines.push('-'.repeat(80));
-
-    for (let i = 0; i < models.length; i++) {
-      const model = models[i];
-      const result = modelResults[i].contexts[contextType];
-
-      lines.push(`${model.description}:`);
-      lines.push(`  TTFT (ms):       ${result.ttft.mean.toFixed(0)} ± ${result.ttft.stddev.toFixed(0)}`);
-      lines.push(`  Tokens In:       ${result.tokensIn}`);
-      lines.push(`  Total Time (s):  ${result.totalTime.mean.toFixed(1)} ± ${result.totalTime.stddev.toFixed(1)}`);
-      lines.push('');
-    }
-
-    // Winner
-    const ttftValues = modelResults.map(r => r.contexts[contextType].ttft.mean);
-    const bestTtftIdx = ttftValues.indexOf(Math.min(...ttftValues));
-    lines.push(`Fastest TTFT: ${models[bestTtftIdx].description} (${ttftValues[bestTtftIdx].toFixed(0)} ms)`);
-    lines.push('');
-  }
-
-  lines.push('================================================================================');
-  lines.push('Test Environment:');
-  lines.push('  - Hardware: NVIDIA DGX Spark GB10 Grace Blackwell Superchip');
-  lines.push('  - CPU: 20-core Arm (10x Cortex-X925 + 10x Cortex-A725)');
-  lines.push('  - GPU: NVIDIA Blackwell (6,144 CUDA cores)');
-  lines.push('  - Memory: 128 GB LPDDR5x unified (273 GB/s bandwidth)');
-  lines.push('  - Software: vLLM v0.10.1.1+381074ae.nv25.09');
-  lines.push(`  - Date: ${testDate}`);
-  lines.push('================================================================================');
-  lines.push('');
-  lines.push('Report generated automatically by perftest-models.js');
-  lines.push('');
-
-  return lines.join('\n');
 }
 
 // ============================================================================
@@ -850,6 +805,10 @@ function generatePlainTextReport(modelResults, models, testDate) {
 // ============================================================================
 
 (async () => {
+  // Start capturing stdout
+  const logger = new Logger();
+  logger.start();
+
   try {
     // Parse CLI arguments
     const cliConfig = parseArgs();
@@ -860,17 +819,34 @@ function generatePlainTextReport(modelResults, models, testDate) {
     console.log(`\n🔍 Model Performance Comparison`);
     console.log(`${'='.repeat(70)}`);
 
-    // Discover services
-    console.log('\n📋 Discovering services...');
-    const services = parseDockerCompose();
+    // Discover all vLLM services
+    console.log('\n📋 Discovering vLLM services...');
+    const allModels = discoverVllmServices();
 
-    for (const model of MODELS) {
-      const status = services[model.name] ? '✓' : '❌ Not found';
-      const skip = cliConfig.skipModels.includes(model.name) ? '(skipped)' : '';
-      console.log(`   ${model.name.padEnd(20)} ${status} ${skip}`);
+    // Filter models if specific ones requested
+    let modelsToTest = allModels;
+    if (cliConfig.models.length > 0) {
+      modelsToTest = allModels.filter(m => cliConfig.models.includes(m.name));
+
+      // Validate requested models exist
+      const notFound = cliConfig.models.filter(name =>
+        !allModels.some(m => m.name === name)
+      );
+      if (notFound.length > 0) {
+        throw new Error(`Models not found: ${notFound.join(', ')}\nAvailable models: ${allModels.map(m => m.name).join(', ')}`);
+      }
     }
 
-    validateServices(services, cliConfig.skipModels);
+    // Display discovered models
+    for (const model of allModels) {
+      const willTest = modelsToTest.includes(model);
+      const status = willTest ? '✓' : '(skipped)';
+      console.log(`   ${model.name.padEnd(20)} ${status}`);
+    }
+
+    if (modelsToTest.length === 0) {
+      throw new Error('No models to test');
+    }
 
     // Stop all containers
     stopAllContainers();
@@ -879,11 +855,7 @@ function generatePlainTextReport(modelResults, models, testDate) {
     const allResults = [];
     const testedModels = [];
 
-    for (const model of MODELS) {
-      if (cliConfig.skipModels.includes(model.name)) {
-        continue;
-      }
-
+    for (const model of modelsToTest) {
       const results = await runAllTests(model);
       const aggregated = aggregateResults(results);
       allResults.push(aggregated);
@@ -894,17 +866,6 @@ function generatePlainTextReport(modelResults, models, testDate) {
     if (allResults.length > 0) {
       printLatencyResults(allResults, testedModels);
       printContextResults(allResults, testedModels);
-
-      // Generate and save report
-      const testDate = new Date().toISOString().split('T')[0];
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('.')[0];
-      const reportFilename = `model-comparison-${timestamp}.txt`;
-      const reportPath = `docs/reports/${reportFilename}`;
-
-      const reportContent = generatePlainTextReport(allResults, testedModels, testDate);
-      writeFileSync(reportPath, reportContent, 'utf8');
-
-      console.log(`\n📄 Report saved to: ${reportPath}`);
     } else {
       console.log('\n⚠️  No tests were run\n');
     }
@@ -912,7 +873,15 @@ function generatePlainTextReport(modelResults, models, testDate) {
     console.log(`\n${'='.repeat(80)}`);
     console.log('✅ Performance testing complete!\n');
 
+    // Stop logger and save exact stdout
+    logger.stop();
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('.')[0];
+    const reportPath = `docs/reports/model-comparison-${timestamp}.txt`;
+    writeFileSync(reportPath, logger.getOutput(), 'utf8');
+    console.log(`📄 Report saved to: ${reportPath}\n`);
+
   } catch (error) {
+    logger.stop();
     console.error(`\n❌ Error: ${error.message}\n`);
     process.exit(1);
   }
