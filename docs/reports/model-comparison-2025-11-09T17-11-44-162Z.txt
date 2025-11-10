@@ -1,0 +1,143 @@
+================================================================================
+vLLM Model Performance Comparison Report
+================================================================================
+
+Test Date: 2025-11-09
+Hardware: NVIDIA DGX Spark GB10 (128GB unified memory)
+Test Iterations: 3
+vLLM Port: 8000
+
+Models Tested:
+  - Dense 32B (Baseline)
+    Service: vllm-qwen3-32b-fp8
+    Model ID: Qwen/Qwen3-32B-FP8
+    Max Context: 32K tokens
+  - MoE 30B (3B active)
+    Service: vllm-qwen3-30b-a3b-fp8
+    Model ID: Qwen/Qwen3-30B-A3B-Instruct-2507-FP8
+    Max Context: 33K tokens
+  - Dense 70B (Long-context)
+    Service: vllm-llama33-70b-fp8
+    Model ID: nvidia/Llama-3.3-70B-Instruct-FP8
+    Max Context: 66K tokens
+
+================================================================================
+SINGLE-REQUEST LATENCY TEST RESULTS
+================================================================================
+Test: Single-request inference | Iterations: 3 | Max Tokens: 500
+
+Dense 32B (Baseline):
+  TTFT (ms):       205 ± 45
+  TPS (tok/s):     6.25 ± 0.01
+  Tokens In:       34
+  Tokens Out:      500
+  Total Time (s):  80.2 ± 0.1
+
+MoE 30B (3B active):
+  TTFT (ms):       78 ± 60
+  TPS (tok/s):     42.02 ± 0.13
+  Tokens In:       34
+  Tokens Out:      500
+  Total Time (s):  12.0 ± 0.0
+
+Dense 70B (Long-context):
+  TTFT (ms):       396 ± 23
+  TPS (tok/s):     2.74 ± 0.00
+  Tokens In:       61
+  Tokens Out:      500
+  Total Time (s):  182.9 ± 0.0
+
+Winner: MoE 30B (3B active) (42.02 tok/s)
+
+================================================================================
+LONG-CONTEXT TEST RESULTS
+================================================================================
+Test: Context length handling | Iterations: 3 | Output: 100 tokens
+
+SHORT CONTEXT (1K TOKENS)
+--------------------------------------------------------------------------------
+Dense 32B (Baseline):
+  TTFT (ms):       286 ± 153
+  Tokens In:       603
+  Total Time (s):  16.2 ± 0.2
+
+MoE 30B (3B active):
+  TTFT (ms):       423 ± 479
+  Tokens In:       603
+  Total Time (s):  2.8 ± 0.5
+
+Dense 70B (Long-context):
+  TTFT (ms):       505 ± 165
+  Tokens In:       628
+  Total Time (s):  36.8 ± 0.1
+
+Fastest TTFT: Dense 32B (Baseline) (286 ms)
+
+MEDIUM CONTEXT (8K TOKENS)
+--------------------------------------------------------------------------------
+Dense 32B (Baseline):
+  TTFT (ms):       1658 ± 2067
+  Tokens In:       4567
+  Total Time (s):  18.1 ± 2.1
+
+MoE 30B (3B active):
+  TTFT (ms):       249 ± 225
+  Tokens In:       4567
+  Total Time (s):  2.9 ± 0.2
+
+Dense 70B (Long-context):
+  TTFT (ms):       3477 ± 4327
+  Tokens In:       4592
+  Total Time (s):  40.4 ± 4.3
+
+Fastest TTFT: MoE 30B (3B active) (249 ms)
+
+LONG CONTEXT (16K TOKENS)
+--------------------------------------------------------------------------------
+Dense 32B (Baseline):
+  TTFT (ms):       1961 ± 2462
+  Tokens In:       9098
+  Total Time (s):  18.9 ± 2.5
+
+MoE 30B (3B active):
+  TTFT (ms):       366 ± 352
+  Tokens In:       9098
+  Total Time (s):  3.2 ± 0.4
+
+Dense 70B (Long-context):
+  TTFT (ms):       4179 ± 5295
+  Tokens In:       9123
+  Total Time (s):  41.7 ± 5.3
+
+Fastest TTFT: MoE 30B (3B active) (366 ms)
+
+VERY LONG CONTEXT (32K TOKENS)
+--------------------------------------------------------------------------------
+Dense 32B (Baseline):
+  TTFT (ms):       5798 ± 7805
+  Tokens In:       18156
+  Total Time (s):  23.8 ± 7.8
+
+MoE 30B (3B active):
+  TTFT (ms):       881 ± 1029
+  Tokens In:       18156
+  Total Time (s):  4.1 ± 1.0
+
+Dense 70B (Long-context):
+  TTFT (ms):       10333 ± 13911
+  Tokens In:       18181
+  Total Time (s):  49.0 ± 13.9
+
+Fastest TTFT: MoE 30B (3B active) (881 ms)
+
+================================================================================
+Test Environment:
+  - Hardware: NVIDIA DGX Spark GB10 Grace Blackwell Superchip
+  - CPU: 20-core Arm (10x Cortex-X925 + 10x Cortex-A725)
+  - GPU: NVIDIA Blackwell (6,144 CUDA cores)
+  - Memory: 128 GB LPDDR5x unified (273 GB/s bandwidth)
+  - Software: vLLM v0.10.1.1+381074ae.nv25.09
+  - Date: 2025-11-09
+================================================================================
+
+Report generated automatically by perftest-models.js

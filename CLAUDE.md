@@ -6,7 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Purpose:** Multi-provider GPU inference platform for NVIDIA DGX Spark (GB10 Grace Blackwell)
 
-**Current Focus:** Qwen3-32B-FP8 model deployment using vLLM and Ollama providers
+**Current Focus:** Multiple LLM model deployments using vLLM and Ollama providers
+- vLLM: Qwen3-32B-FP8, Qwen3-30B-A3B-FP8, Llama 3.3 70B-FP8
+- Ollama: Qwen3-32B-FP8
 
 **Hardware:** NVIDIA DGX Spark with 128GB unified memory, 273 GB/s bandwidth
 
@@ -34,9 +36,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Available Services
 
-### 1. vLLM: Qwen3-32B-FP8 (Port 8000)
+**Note:** All vLLM services use port 8000 - only run one vLLM model at a time.
 
-High-performance inference with OpenAI-compatible API.
+### vLLM Models (Port 8000)
+
+#### 1. vLLM: Qwen3-32B-FP8
+
+High-performance inference with OpenAI-compatible API. Dense 32B model (baseline).
 
 **Configuration:**
 - **Model:** `Qwen/Qwen3-32B-FP8` (official pre-quantized)
@@ -44,10 +50,41 @@ High-performance inference with OpenAI-compatible API.
 - **Context:** 32,000 tokens
 - **Concurrency:** 64 concurrent requests
 - **Performance:** ~6-7 tok/s (single), ~300-400 tok/s (batched)
+- **Best For:** Maximum throughput with batching
 
 **Documentation:** `docs/vllm/qwen3-32b-fp8.md`
 
-### 2. Ollama: Qwen3-32B-FP8 (Port 11434)
+#### 2. vLLM: Qwen3-30B-A3B-FP8
+
+High-performance inference with OpenAI-compatible API. MoE model (30B total, 3B active).
+
+**Configuration:**
+- **Model:** `Qwen/Qwen3-30B-A3B-Instruct-2507-FP8` (official pre-quantized)
+- **Memory:** ~30 GB model, ~55-70 GB KV cache
+- **Context:** 32,768 tokens
+- **Concurrency:** 64 concurrent requests
+- **Performance:** ~7-9 tok/s (single), ~200-350 tok/s (batched)
+- **Best For:** Efficiency, mixed workloads, better single-request latency
+
+**Documentation:** `docs/vllm/qwen3-30b-a3b-fp8.md`
+
+#### 3. vLLM: Llama 3.3 70B-FP8
+
+High-performance inference with OpenAI-compatible API. Dense 70B model (highest quality).
+
+**Configuration:**
+- **Model:** `nvidia/Llama-3.3-70B-Instruct-FP8` (NVIDIA pre-quantized)
+- **Memory:** ~35 GB model, ~40-60 GB KV cache
+- **Context:** 65,536 tokens (128K max)
+- **Concurrency:** 32 concurrent requests
+- **Performance:** ~5-7 tok/s (single), ~80-150 tok/s (batched)
+- **Best For:** Highest quality, long-context analysis, complex reasoning
+
+**Documentation:** `docs/vllm/llama33-70b-fp8.md`
+
+### Ollama Models (Port 11434)
+
+#### 4. Ollama: Qwen3-32B-FP8
 
 Simple inference with native Ollama API.
 
@@ -57,6 +94,7 @@ Simple inference with native Ollama API.
 - **Context:** 32,768 tokens
 - **Concurrency:** 8 concurrent requests
 - **Performance:** ~5-8 tok/s (single), ~40-80 tok/s (batched)
+- **Best For:** Development, testing, simple workflows
 
 **Documentation:** `docs/ollama/qwen3-32b-fp8.md`
 
@@ -67,15 +105,22 @@ Simple inference with native Ollama API.
 ### Service Management
 
 ```bash
-# Start services
-docker compose up -d vllm-qwen3-32b-fp8       # vLLM
-docker compose up -d ollama-qwen3-32b-fp8     # Ollama
+# Start vLLM services (only run ONE at a time - all use port 8000)
+docker compose up -d vllm-qwen3-32b-fp8       # Dense 32B (baseline)
+docker compose up -d vllm-qwen3-30b-a3b-fp8   # MoE 30B (efficient)
+docker compose up -d vllm-llama33-70b-fp8     # Dense 70B (high quality)
+
+# Start Ollama service
+docker compose up -d ollama-qwen3-32b-fp8     # Ollama (port 11434)
 
 # View logs
 docker compose logs -f <service-name>
 
 # Stop services
 docker compose stop <service-name>
+
+# Stop all vLLM services
+docker compose stop vllm-qwen3-32b-fp8 vllm-qwen3-30b-a3b-fp8 vllm-llama33-70b-fp8
 
 # Restart
 docker compose restart <service-name>
@@ -90,13 +135,15 @@ docker compose ps
 # GPU status (host)
 nvidia-smi
 
-# GPU status (vLLM container)
+# GPU status (vLLM containers)
 docker exec vllm-qwen3-32b-fp8 nvidia-smi
+docker exec vllm-qwen3-30b-a3b-fp8 nvidia-smi
+docker exec vllm-llama33-70b-fp8 nvidia-smi
 
 # GPU status (Ollama container)
 docker exec ollama-qwen3-32b-fp8 nvidia-smi
 
-# vLLM metrics
+# vLLM metrics (whichever service is running on port 8000)
 curl http://localhost:8000/metrics
 
 # Ollama model status
@@ -109,14 +156,44 @@ docker stats <service-name>
 ### Testing
 
 ```bash
-# Test vLLM (OpenAI-compatible)
+# Test vLLM models (OpenAI-compatible, port 8000)
+# Qwen3-32B-FP8
 curl -X POST http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model": "Qwen/Qwen3-32B-FP8", "messages": [{"role": "user", "content": "Hello!"}]}'
 
-# Test Ollama (native)
+# Qwen3-30B-A3B-FP8
+curl -X POST http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model": "Qwen/Qwen3-30B-A3B-Instruct-2507-FP8", "messages": [{"role": "user", "content": "Hello!"}]}'
+
+# Llama 3.3 70B-FP8
+curl -X POST http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model": "nvidia/Llama-3.3-70B-Instruct-FP8", "messages": [{"role": "user", "content": "Hello!"}]}'
+
+# Test Ollama (native, port 11434)
 curl http://localhost:11434/api/chat \
   -d '{"model": "qwen3-32b-fp8", "messages": [{"role": "user", "content": "Hello!"}]}'
+```
+
+### Performance Testing
+
+```bash
+# Model-vs-model comparison (all vLLM models)
+./tools/perftest-models.js
+
+# Test specific models only
+./tools/perftest-models.js --skip qwen3-32b-fp8
+./tools/perftest-models.js --skip llama33-70b-fp8
+
+# Custom iterations
+./tools/perftest-models.js --iterations 5
+
+# Provider comparison (Ollama vs vLLM for Qwen3-32B)
+./tools/perftest.js qwen3-32b-fp8
+./tools/perftest.js qwen3-32b-fp8 ollama    # Ollama only
+./tools/perftest.js qwen3-32b-fp8 vllm      # vLLM only
 ```
 
 ---
@@ -127,6 +204,8 @@ All services follow: `{provider}-{model}-{quantization}`
 
 **Examples:**
 - `vllm-qwen3-32b-fp8` - vLLM with Qwen3-32B FP8
+- `vllm-qwen3-30b-a3b-fp8` - vLLM with Qwen3-30B-A3B FP8
+- `vllm-llama33-70b-fp8` - vLLM with Llama 3.3 70B FP8
 - `ollama-qwen3-32b-fp8` - Ollama with Qwen3-32B Q8_0
 
 **Note:** Quantization indicated by service name only (no Docker Compose profiles used)
@@ -170,12 +249,33 @@ Defines:
 
 Detailed configuration guides for deployed models:
 
+### vLLM Models
+
 - **vLLM Qwen3-32B-FP8:** `docs/vllm/qwen3-32b-fp8.md`
-  - Service configuration
-  - Parameter tuning
+  - Dense 32B model (baseline)
+  - Service configuration and parameter tuning
   - OpenAI API examples
   - Performance optimization
   - Troubleshooting
+
+- **vLLM Qwen3-30B-A3B-FP8:** `docs/vllm/qwen3-30b-a3b-fp8.md`
+  - MoE 30B model (3B active per token)
+  - What is MoE and good use cases
+  - Service configuration and parameter tuning
+  - OpenAI API examples
+  - Performance optimization
+  - Troubleshooting
+
+- **vLLM Llama 3.3 70B-FP8:** `docs/vllm/llama33-70b-fp8.md`
+  - Dense 70B model (highest quality)
+  - What is Llama 3.3 and good use cases
+  - Long-context configuration (128K max)
+  - Service configuration and parameter tuning
+  - OpenAI API examples
+  - Performance optimization
+  - Troubleshooting
+
+### Ollama Models
 
 - **Ollama Qwen3-32B-FP8:** `docs/ollama/qwen3-32b-fp8.md`
   - Service configuration
@@ -183,6 +283,8 @@ Detailed configuration guides for deployed models:
   - Native API examples
   - Performance tuning
   - Troubleshooting
+
+### Infrastructure
 
 - **Hardware & Docker:** `docs/nvidia-spark.md`
   - DGX Spark specifications
@@ -218,9 +320,30 @@ Detailed configuration guides for deployed models:
 
 ---
 
+## Model Comparison (vLLM)
+
+| Feature | Qwen3-32B-FP8 | Qwen3-30B-A3B-FP8 | Llama 3.3 70B-FP8 |
+|---------|---------------|-------------------|-------------------|
+| **Architecture** | Dense 32B | MoE 30B (3B active) | Dense 70B |
+| **Model Memory** | ~32 GB | ~30 GB | ~35 GB |
+| **KV Cache** | ~66 GB | ~55-70 GB | ~40-60 GB |
+| **Total Memory** | ~98 GB | ~85-100 GB | ~75-95 GB |
+| **Context Length** | 32K | 32K | 65K (128K max) |
+| **Max Concurrency** | 64 | 64 | 32 |
+| **Single Request TPS** | ~6-7 | ~7-9 | ~5-7 |
+| **Batched TPS** | ~300-400 | ~200-350 | ~80-150 |
+| **Best For** | Max throughput | Efficiency | Quality + long-context |
+
+**Model Selection Guide:**
+- **Qwen3-32B-FP8:** Choose for maximum batched throughput, proven baseline performance
+- **Qwen3-30B-A3B-FP8:** Choose for better single-request latency, more memory headroom, mixed workloads
+- **Llama 3.3 70B-FP8:** Choose for highest quality, long-context analysis (up to 65K tokens), complex reasoning
+
+---
+
 ## Performance Expectations
 
-### vLLM (Qwen3-32B-FP8)
+### vLLM: Qwen3-32B-FP8 (Baseline Dense 32B)
 
 - **Single Request:** ~6-7 tokens/sec
 - **Batched (16-32 concurrent):** ~100-200 tokens/sec aggregate
@@ -228,7 +351,22 @@ Detailed configuration guides for deployed models:
 - **Context:** Full 32K tokens supported
 - **KV Cache:** 66 GB, 271,360 tokens capacity
 
-### Ollama (Qwen3-32B-FP8)
+### vLLM: Qwen3-30B-A3B-FP8 (MoE 30B)
+
+- **Single Request:** ~7-9 tokens/sec (better than dense due to MoE)
+- **Batched (16-32 concurrent):** ~100-200 tokens/sec aggregate
+- **Batched (48-64 concurrent):** ~200-350 tokens/sec aggregate
+- **Context:** Full 32K tokens supported
+- **KV Cache:** ~55-70 GB (configurable via gpu_memory_utilization)
+
+### vLLM: Llama 3.3 70B-FP8 (Dense 70B, Long-Context)
+
+- **Single Request:** ~5-7 tokens/sec
+- **Batched (16-32 concurrent):** ~80-150 tokens/sec aggregate
+- **Context:** 65K tokens configured (128K native max)
+- **KV Cache:** ~40-60 GB (varies with context length)
+
+### Ollama: Qwen3-32B-FP8
 
 - **Single Request:** ~5-8 tokens/sec
 - **Batched (4 concurrent):** ~20-35 tokens/sec aggregate
@@ -269,16 +407,21 @@ For maximum performance on DGX Spark:
 ├── docs/
 │   ├── nvidia-spark.md           # Hardware & Docker setup
 │   ├── vllm/
-│   │   └── qwen3-32b-fp8.md     # vLLM configuration
+│   │   ├── qwen3-32b-fp8.md     # vLLM Qwen3-32B configuration
+│   │   ├── qwen3-30b-a3b-fp8.md # vLLM Qwen3-30B-A3B configuration
+│   │   └── llama33-70b-fp8.md   # vLLM Llama 3.3 70B configuration
 │   └── ollama/
 │       └── qwen3-32b-fp8.md     # Ollama configuration
+├── tools/
+│   ├── perftest-models.js        # Model-vs-model comparison
+│   └── perftest.js               # Provider comparison (Ollama vs vLLM)
 └── models/
     └── ollama/
         └── Modelfile-qwen3-32b-fp8  # Ollama model config
 ```
 
 **Storage Locations:**
-- `/opt/hf` - vLLM model cache (~32GB)
+- `/opt/hf` - vLLM model cache (~32GB Qwen3-32B, ~30GB Qwen3-30B-A3B, ~35GB Llama 3.3 70B)
 - `/opt/ollama` - Ollama model storage (~35-40GB)
 
 ---
@@ -338,26 +481,45 @@ df -h /opt
 
 - **Never substitute the 240W PSU** - DGX Spark requires specific power supply
 - **No Docker Compose profiles** - Services differentiated by name only
-- **Both services can't run simultaneously** - vLLM and Ollama both need significant GPU memory
-- **First-time loading is slow** - vLLM: ~9-10 min, Ollama: ~10-15 min
-- **Subsequent starts are faster** - Models cached locally
-- **Memory bandwidth is the bottleneck** - Not compute capacity
+- **Only one vLLM model at a time** - All vLLM services use port 8000, cannot run simultaneously
+- **vLLM and Ollama can't run simultaneously** - Both need significant GPU memory
+- **First-time loading is slow** - vLLM models: ~8-12 min, Ollama: ~10-15 min (depending on model size)
+- **Subsequent starts are faster** - Models cached locally at `/opt/hf` (vLLM) and `/opt/ollama` (Ollama)
+- **Memory bandwidth is the bottleneck** - Not compute capacity (273 GB/s limitation)
 - **Batching is essential** - Single-request performance is hardware-limited
+- **Model selection matters** - Choose Qwen3-30B-A3B for efficiency, Llama 3.3 70B for quality/long-context
 
 ---
 
 ## References
 
+### Documentation
+
 - **README.md** - Platform overview and quick start
 - **docs/nvidia-spark.md** - Hardware specifications and Docker setup
-- **docs/vllm/qwen3-32b-fp8.md** - vLLM configuration and tuning
-- **docs/ollama/qwen3-32b-fp8.md** - Ollama configuration and tuning
+
+### Model Documentation
+
+- **docs/vllm/qwen3-32b-fp8.md** - vLLM Qwen3-32B-FP8 configuration and tuning
+- **docs/vllm/qwen3-30b-a3b-fp8.md** - vLLM Qwen3-30B-A3B-FP8 configuration and tuning
+- **docs/vllm/llama33-70b-fp8.md** - vLLM Llama 3.3 70B-FP8 configuration and tuning
+- **docs/ollama/qwen3-32b-fp8.md** - Ollama Qwen3-32B-FP8 configuration and tuning
+
+### Performance Testing
+
+- **tools/perftest-models.js** - Model-vs-model comparison (vLLM models)
+- **tools/perftest.js** - Provider comparison (Ollama vs vLLM)
+
+### External Resources
+
 - **vLLM Documentation:** https://docs.vllm.ai
 - **Ollama Documentation:** https://docs.ollama.com
 - **DGX Spark Docs:** https://docs.nvidia.com/dgx/dgx-spark/
+- **Qwen Models:** https://huggingface.co/Qwen
+- **Llama Models:** https://huggingface.co/meta-llama
 
 ---
 
-**Last Updated:** 2025-11-07
+**Last Updated:** 2025-11-08
 **Repository Purpose:** Multi-provider inference platform for DGX Spark
-**Current Model:** Qwen3-32B-FP8 (vLLM + Ollama)
+**Current Models:** Qwen3-32B-FP8, Qwen3-30B-A3B-FP8, Llama 3.3 70B-FP8 (vLLM); Qwen3-32B-FP8 (Ollama)
