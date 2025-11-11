@@ -20,12 +20,12 @@ sudo mkdir -p /opt/hf /opt/ollama
 sudo chown -R $(id -u):$(id -g) /opt/hf /opt/ollama
 
 # 3. Start a model (only one vLLM service at a time)
-docker compose up -d vllm-qwen3-30b-a3b-fp8  # Recommended: Fastest
+docker compose up -d vllm-qwen3-8b-fp8  # Recommended: Fastest
 
 # 4. Test inference
 curl -X POST http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -d '{"model": "Qwen/Qwen3-30B-A3B-Instruct-2507-FP8", "messages": [{"role": "user", "content": "Hello!"}]}'
+  -d '{"model": "Qwen/Qwen3-8B-FP8", "messages": [{"role": "user", "content": "Hello!"}]}'
 ```
 
 ---
@@ -36,12 +36,15 @@ All models use vLLM on port 8000 (run one at a time):
 
 | Service | Model | Type | Context | Best For |
 |---------|-------|------|---------|----------|
-| `vllm-qwen3-30b-a3b-fp8` | Qwen3-30B-A3B-FP8 | MoE (3B active) | 32K | **Speed** (42 tok/s) ⚡ |
-| `vllm-qwen3-32b-fp8` | Qwen3-32B-FP8 | Dense 32B | 32K | Baseline (6.3 tok/s) |
-| `vllm-llama33-70b-fp8` | Llama 3.3 70B-FP8 | Dense 70B | 65K | Quality (2.7 tok/s) |
+| `vllm-qwen3-8b-fp8` | Qwen3-8B-FP8 | Dense 8B | 32K | **Max Speed** ⚡ (~10 tok/s) |
+| `vllm-llama31-8b-fp8` | Llama-3.1-8B-FP8 | Dense 8B | 32K | NVIDIA-optimized (~10 tok/s) |
+| `vllm-mistral-nemo-12b-fp8` | Mistral-NeMo-12B-FP8 | Dense 12B | **65K** | **Long-context** (128K native) |
+| `vllm-qwen3-32b-fp8` | Qwen3-32B-FP8 | Dense 32B | 32K | Balanced (~7 tok/s) |
+| `vllm-qwen3-30b-a3b-fp8` | Qwen3-30B-A3B-FP8 | MoE (3B active) | 32K | Efficient MoE (~9 tok/s) |
+| `vllm-llama33-70b-fp8` | Llama 3.3 70B-FP8 | Dense 70B | 65K | Max Quality (~6 tok/s) |
 | `ollama-qwen3-32b-fp8` | Qwen3:32b-q8_0 | Dense 32B | 32K | vLLM comparison |
 
-**Performance tested on DGX Spark GB10 (see below)**
+**Performance estimates for single-request throughput on DGX Spark GB10**
 
 ### Commands
 
@@ -129,9 +132,12 @@ Two automated CLI testing tools included:
 - **[Hardware Specs](docs/nvidia-spark.md)** - DGX Spark GB10 specifications
 
 ### Model Configuration Guides
-- **[Qwen3-30B-A3B-FP8](docs/vllm/qwen3-30b-a3b-fp8.md)** - MoE model (recommended)
+- **[Qwen3-8B-FP8](docs/vllm/qwen3-8b-fp8.md)** - Fastest 8B model (recommended)
+- **[Llama-3.1-8B-FP8](docs/vllm/llama31-8b-fp8.md)** - NVIDIA-optimized 8B
+- **[Mistral-NeMo-12B-FP8](docs/vllm/mistral-nemo-12b-fp8.md)** - Long-context specialist (65K/128K)
 - **[Qwen3-32B-FP8](docs/vllm/qwen3-32b-fp8.md)** - Dense baseline
-- **[Llama 3.3 70B-FP8](docs/vllm/llama33-70b-fp8.md)** - Long-context specialist
+- **[Qwen3-30B-A3B-FP8](docs/vllm/qwen3-30b-a3b-fp8.md)** - MoE model
+- **[Llama 3.3 70B-FP8](docs/vllm/llama33-70b-fp8.md)** - Maximum quality
 - **[Ollama Qwen3-32B](docs/ollama/qwen3-32b-fp8.md)** - Provider comparison
 
 ### External Resources
@@ -186,14 +192,17 @@ Simply open this repository in Claude Code to get intelligent assistance with mo
 │   ├── perftest-models.js         # Model-vs-model comparison
 │   └── perftest.js                # vLLM vs Ollama comparison
 ├── docs/
-│   ├── nvidia-spark.md           # Hardware specs & setup
-│   ├── vllm/                     # vLLM model configurations
-│   │   ├── qwen3-30b-a3b-fp8.md # MoE model (fastest)
-│   │   ├── qwen3-32b-fp8.md     # Dense baseline
-│   │   └── llama33-70b-fp8.md   # Long-context specialist
-│   ├── ollama/                   # Ollama configurations
-│   │   └── qwen3-32b-fp8.md     # Provider comparison
-│   └── reports/                  # Performance test results
+│   ├── nvidia-spark.md               # Hardware specs & setup
+│   ├── vllm/                         # vLLM model configurations
+│   │   ├── qwen3-8b-fp8.md           # 8B model (fastest)
+│   │   ├── llama31-8b-fp8.md         # 8B NVIDIA-optimized
+│   │   ├── mistral-nemo-12b-fp8.md   # 12B long-context
+│   │   ├── qwen3-32b-fp8.md          # 32B baseline
+│   │   ├── qwen3-30b-a3b-fp8.md      # 30B MoE
+│   │   └── llama33-70b-fp8.md        # 70B max quality
+│   ├── ollama/                       # Ollama configurations
+│   │   └── qwen3-32b-fp8.md          # Provider comparison
+│   └── reports/                      # Performance test results
 └── models/
     └── ollama/
         └── Modelfile-qwen3-32b-fp8

@@ -118,6 +118,123 @@ services:
               count: all
               capabilities: [gpu]
 
+  vllm-qwen3-8b-fp8:
+    image: nvcr.io/nvidia/vllm:25.09-py3
+    container_name: vllm-qwen3-8b-fp8
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      HF_TOKEN: "${HF_TOKEN}"
+      HUGGING_FACE_HUB_TOKEN: "${HF_TOKEN}"
+    ipc: host
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    command:
+      - vllm
+      - serve
+      - Qwen/Qwen3-8B-FP8
+      - --download-dir
+      - /root/.cache/huggingface
+      - --max-model-len
+      - "32768"
+      - --gpu-memory-utilization
+      - "0.90"
+      - --max-num-batched-tokens
+      - "16384"
+      - --max-num-seqs
+      - "64"
+      - --enable-prefix-caching
+      - --trust-remote-code
+    volumes:
+      - /opt/hf:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  vllm-llama31-8b-fp8:
+    image: nvcr.io/nvidia/vllm:25.09-py3
+    container_name: vllm-llama31-8b-fp8
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      HF_TOKEN: "${HF_TOKEN}"
+      HUGGING_FACE_HUB_TOKEN: "${HF_TOKEN}"
+    ipc: host
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    command:
+      - vllm
+      - serve
+      - nvidia/Llama-3.1-8B-Instruct-FP8
+      - --download-dir
+      - /root/.cache/huggingface
+      - --max-model-len
+      - "32768"
+      - --gpu-memory-utilization
+      - "0.90"
+      - --max-num-batched-tokens
+      - "16384"
+      - --max-num-seqs
+      - "64"
+      - --enable-prefix-caching
+      - --trust-remote-code
+    volumes:
+      - /opt/hf:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  vllm-mistral-nemo-12b-fp8:
+    image: nvcr.io/nvidia/vllm:25.09-py3
+    container_name: vllm-mistral-nemo-12b-fp8
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      HF_TOKEN: "${HF_TOKEN}"
+      HUGGING_FACE_HUB_TOKEN: "${HF_TOKEN}"
+    ipc: host
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    command:
+      - vllm
+      - serve
+      - neuralmagic/Mistral-Nemo-Instruct-2407-FP8
+      - --download-dir
+      - /root/.cache/huggingface
+      - --max-model-len
+      - "65536"
+      - --gpu-memory-utilization
+      - "0.90"
+      - --max-num-batched-tokens
+      - "16384"
+      - --max-num-seqs
+      - "64"
+      - --enable-prefix-caching
+      - --trust-remote-code
+    volumes:
+      - /opt/hf:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
   ollama-qwen3-32b-fp8:
     image: ollama/ollama:latest
     container_name: ollama-qwen3-32b-fp8

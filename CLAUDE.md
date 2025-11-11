@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **Purpose:** Multi-provider GPU inference platform for NVIDIA DGX Spark (GB10 Grace Blackwell)
 
 **Current Focus:** Multiple LLM model deployments using vLLM and Ollama providers
-- vLLM: Qwen3-32B-FP8, Qwen3-30B-A3B-FP8, Llama 3.3 70B-FP8
+- vLLM: Qwen3-8B-FP8, Llama-3.1-8B-FP8, Mistral-NeMo-12B-FP8, Qwen3-32B-FP8, Qwen3-30B-A3B-FP8, Llama 3.3 70B-FP8
 - Ollama: Qwen3-32B-FP8
 
 **Hardware:** NVIDIA DGX Spark with 128GB unified memory, 273 GB/s bandwidth
@@ -40,7 +40,49 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### vLLM Models (Port 8000)
 
-#### 1. vLLM: Qwen3-32B-FP8
+#### 1. vLLM: Qwen3-8B-FP8
+
+High-performance inference with OpenAI-compatible API. Compact 8B model (fastest).
+
+**Configuration:**
+- **Model:** `Qwen/Qwen3-8B-FP8` (official pre-quantized)
+- **Memory:** ~8 GB model, ~80-85 GB KV cache
+- **Context:** 32,768 tokens
+- **Concurrency:** 64+ concurrent requests
+- **Performance:** ~9-10 tok/s (single), ~450-500 tok/s (batched)
+- **Best For:** Maximum speed and throughput
+
+**Documentation:** `docs/vllm/qwen3-8b-fp8.md`
+
+#### 2. vLLM: Llama-3.1-8B-Instruct-FP8
+
+High-performance inference with OpenAI-compatible API. NVIDIA-optimized 8B model.
+
+**Configuration:**
+- **Model:** `nvidia/Llama-3.1-8B-Instruct-FP8` (NVIDIA pre-quantized)
+- **Memory:** ~8 GB model, ~80-85 GB KV cache
+- **Context:** 32,768 tokens (128K native)
+- **Concurrency:** 64+ concurrent requests
+- **Performance:** ~9-10 tok/s (single), ~450-500 tok/s (batched)
+- **Best For:** Fast inference, instruction following, NVIDIA optimization
+
+**Documentation:** `docs/vllm/llama31-8b-fp8.md`
+
+#### 3. vLLM: Mistral-NeMo-12B-Instruct-FP8
+
+High-performance inference with OpenAI-compatible API. 12B model with long-context (128K native).
+
+**Configuration:**
+- **Model:** `neuralmagic/Mistral-Nemo-Instruct-2407-FP8` (vLLM-optimized)
+- **Memory:** ~12 GB model, ~75-80 GB KV cache
+- **Context:** 65,536 tokens (128K native)
+- **Concurrency:** 64 concurrent requests
+- **Performance:** ~8-9 tok/s (single), ~400-450 tok/s (batched)
+- **Best For:** Long-context analysis, document processing, balanced quality/speed
+
+**Documentation:** `docs/vllm/mistral-nemo-12b-fp8.md`
+
+#### 4. vLLM: Qwen3-32B-FP8
 
 High-performance inference with OpenAI-compatible API. Dense 32B model (baseline).
 
@@ -54,7 +96,7 @@ High-performance inference with OpenAI-compatible API. Dense 32B model (baseline
 
 **Documentation:** `docs/vllm/qwen3-32b-fp8.md`
 
-#### 2. vLLM: Qwen3-30B-A3B-FP8
+#### 5. vLLM: Qwen3-30B-A3B-FP8
 
 High-performance inference with OpenAI-compatible API. MoE model (30B total, 3B active).
 
@@ -68,7 +110,7 @@ High-performance inference with OpenAI-compatible API. MoE model (30B total, 3B 
 
 **Documentation:** `docs/vllm/qwen3-30b-a3b-fp8.md`
 
-#### 3. vLLM: Llama 3.3 70B-FP8
+#### 6. vLLM: Llama 3.3 70B-FP8
 
 High-performance inference with OpenAI-compatible API. Dense 70B model (highest quality).
 
@@ -84,7 +126,7 @@ High-performance inference with OpenAI-compatible API. Dense 70B model (highest 
 
 ### Ollama Models (Port 11434)
 
-#### 4. Ollama: Qwen3-32B-FP8
+#### 7. Ollama: Qwen3-32B-FP8
 
 Simple inference with native Ollama API.
 
@@ -106,12 +148,15 @@ Simple inference with native Ollama API.
 
 ```bash
 # Start vLLM services (only run ONE at a time - all use port 8000)
-docker compose up -d vllm-qwen3-32b-fp8       # Dense 32B (baseline)
-docker compose up -d vllm-qwen3-30b-a3b-fp8   # MoE 30B (efficient)
-docker compose up -d vllm-llama33-70b-fp8     # Dense 70B (high quality)
+docker compose up -d vllm-qwen3-8b-fp8             # Dense 8B (fastest)
+docker compose up -d vllm-llama31-8b-fp8           # Llama-3.1 8B (NVIDIA-optimized)
+docker compose up -d vllm-mistral-nemo-12b-fp8     # Mistral-NeMo 12B (long-context)
+docker compose up -d vllm-qwen3-32b-fp8            # Dense 32B (baseline)
+docker compose up -d vllm-qwen3-30b-a3b-fp8        # MoE 30B (efficient)
+docker compose up -d vllm-llama33-70b-fp8          # Dense 70B (high quality)
 
 # Start Ollama service
-docker compose up -d ollama-qwen3-32b-fp8     # Ollama (port 11434)
+docker compose up -d ollama-qwen3-32b-fp8          # Ollama (port 11434)
 
 # View logs
 docker compose logs -f <service-name>
@@ -120,7 +165,7 @@ docker compose logs -f <service-name>
 docker compose stop <service-name>
 
 # Stop all vLLM services
-docker compose stop vllm-qwen3-32b-fp8 vllm-qwen3-30b-a3b-fp8 vllm-llama33-70b-fp8
+docker compose stop vllm-qwen3-8b-fp8 vllm-llama31-8b-fp8 vllm-mistral-nemo-12b-fp8 vllm-qwen3-32b-fp8 vllm-qwen3-30b-a3b-fp8 vllm-llama33-70b-fp8
 
 # Restart
 docker compose restart <service-name>
@@ -136,6 +181,9 @@ docker compose ps
 nvidia-smi
 
 # GPU status (vLLM containers)
+docker exec vllm-qwen3-8b-fp8 nvidia-smi
+docker exec vllm-llama31-8b-fp8 nvidia-smi
+docker exec vllm-mistral-nemo-12b-fp8 nvidia-smi
 docker exec vllm-qwen3-32b-fp8 nvidia-smi
 docker exec vllm-qwen3-30b-a3b-fp8 nvidia-smi
 docker exec vllm-llama33-70b-fp8 nvidia-smi
@@ -157,6 +205,21 @@ docker stats <service-name>
 
 ```bash
 # Test vLLM models (OpenAI-compatible, port 8000)
+# Qwen3-8B-FP8
+curl -X POST http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model": "Qwen/Qwen3-8B-FP8", "messages": [{"role": "user", "content": "Hello!"}]}'
+
+# Llama-3.1-8B-Instruct-FP8
+curl -X POST http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model": "nvidia/Llama-3.1-8B-Instruct-FP8", "messages": [{"role": "user", "content": "Hello!"}]}'
+
+# Mistral-NeMo-12B-Instruct-FP8
+curl -X POST http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model": "neuralmagic/Mistral-Nemo-Instruct-2407-FP8", "messages": [{"role": "user", "content": "Hello!"}]}'
+
 # Qwen3-32B-FP8
 curl -X POST http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
@@ -203,6 +266,9 @@ curl http://localhost:11434/api/chat \
 All services follow: `{provider}-{model}-{quantization}`
 
 **Examples:**
+- `vllm-qwen3-8b-fp8` - vLLM with Qwen3-8B FP8
+- `vllm-llama31-8b-fp8` - vLLM with Llama-3.1-8B FP8
+- `vllm-mistral-nemo-12b-fp8` - vLLM with Mistral-NeMo-12B FP8
 - `vllm-qwen3-32b-fp8` - vLLM with Qwen3-32B FP8
 - `vllm-qwen3-30b-a3b-fp8` - vLLM with Qwen3-30B-A3B FP8
 - `vllm-llama33-70b-fp8` - vLLM with Llama 3.3 70B FP8
@@ -250,6 +316,30 @@ Defines:
 Detailed configuration guides for deployed models:
 
 ### vLLM Models
+
+- **vLLM Qwen3-8B-FP8:** `docs/vllm/qwen3-8b-fp8.md`
+  - Compact 8B model (fastest)
+  - Service configuration and parameter tuning
+  - OpenAI API examples
+  - Performance optimization
+  - Troubleshooting
+
+- **vLLM Llama-3.1-8B-FP8:** `docs/vllm/llama31-8b-fp8.md`
+  - NVIDIA-optimized 8B model
+  - Instruction following and tool use
+  - Service configuration and parameter tuning
+  - OpenAI API examples
+  - Performance optimization
+  - Troubleshooting
+
+- **vLLM Mistral-NeMo-12B-FP8:** `docs/vllm/mistral-nemo-12b-fp8.md`
+  - 12B model with long-context (128K native)
+  - What is Mistral-NeMo and good use cases
+  - Long-context configuration (65K configured)
+  - Service configuration and parameter tuning
+  - OpenAI API examples
+  - Performance optimization
+  - Troubleshooting
 
 - **vLLM Qwen3-32B-FP8:** `docs/vllm/qwen3-32b-fp8.md`
   - Dense 32B model (baseline)
@@ -322,26 +412,53 @@ Detailed configuration guides for deployed models:
 
 ## Model Comparison (vLLM)
 
-| Feature | Qwen3-32B-FP8 | Qwen3-30B-A3B-FP8 | Llama 3.3 70B-FP8 |
-|---------|---------------|-------------------|-------------------|
-| **Architecture** | Dense 32B | MoE 30B (3B active) | Dense 70B |
-| **Model Memory** | ~32 GB | ~30 GB | ~35 GB |
-| **KV Cache** | ~66 GB | ~55-70 GB | ~40-60 GB |
-| **Total Memory** | ~98 GB | ~85-100 GB | ~75-95 GB |
-| **Context Length** | 32K | 32K | 65K (128K max) |
-| **Max Concurrency** | 64 | 64 | 32 |
-| **Single Request TPS** | ~6-7 | ~7-9 | ~5-7 |
-| **Batched TPS** | ~300-400 | ~200-350 | ~80-150 |
-| **Best For** | Max throughput | Efficiency | Quality + long-context |
+| Feature | Qwen3-8B | Llama-3.1-8B | Mistral-NeMo-12B | Qwen3-32B | Qwen3-30B-A3B | Llama-3.3-70B |
+|---------|----------|--------------|------------------|-----------|---------------|---------------|
+| **Architecture** | Dense 8B | Dense 8B | Dense 12B | Dense 32B | MoE 30B (3B) | Dense 70B |
+| **Model Memory** | ~8 GB | ~8 GB | ~12 GB | ~32 GB | ~30 GB | ~35 GB |
+| **KV Cache** | ~80-85 GB | ~80-85 GB | ~75-80 GB | ~66 GB | ~55-70 GB | ~40-60 GB |
+| **Total Memory** | ~88-93 GB | ~88-93 GB | ~87-92 GB | ~98 GB | ~85-100 GB | ~75-95 GB |
+| **Context Length** | 32K | 32K (128K native) | 65K (128K native) | 32K | 32K | 65K (128K) |
+| **Max Concurrency** | 64+ | 64+ | 64 | 64 | 64 | 32 |
+| **Single Request TPS** | ~9-10 | ~9-10 | ~8-9 | ~6-7 | ~7-9 | ~5-7 |
+| **Batched TPS** | ~450-500 | ~450-500 | ~400-450 | ~300-400 | ~200-350 | ~80-150 |
+| **Best For** | Max speed | NVIDIA-optimized | Long-context | High throughput | Efficiency | Max quality |
 
 **Model Selection Guide:**
-- **Qwen3-32B-FP8:** Choose for maximum batched throughput, proven baseline performance
-- **Qwen3-30B-A3B-FP8:** Choose for better single-request latency, more memory headroom, mixed workloads
-- **Llama 3.3 70B-FP8:** Choose for highest quality, long-context analysis (up to 65K tokens), complex reasoning
+- **Qwen3-8B-FP8:** Choose for maximum speed, highest batched throughput, fastest single-request performance
+- **Llama-3.1-8B-FP8:** Choose for NVIDIA-optimized performance, instruction following, proven Meta architecture
+- **Mistral-NeMo-12B-FP8:** Choose for long-context tasks (65K), document analysis, balanced quality/speed
+- **Qwen3-32B-FP8:** Choose for higher quality than 8B models, proven baseline performance
+- **Qwen3-30B-A3B-FP8:** Choose for better single-request latency (MoE), more memory headroom, mixed workloads
+- **Llama 3.3 70B-FP8:** Choose for highest quality, complex reasoning, long-context analysis
 
 ---
 
 ## Performance Expectations
+
+### vLLM: Qwen3-8B-FP8 (Compact 8B, Fastest)
+
+- **Single Request:** ~9-10 tokens/sec (fastest in platform)
+- **Batched (16-32 concurrent):** ~150-250 tokens/sec aggregate
+- **Batched (48-64 concurrent):** ~450-500 tokens/sec aggregate
+- **Context:** Full 32K tokens supported
+- **KV Cache:** ~80-85 GB, ~350,000+ tokens capacity
+
+### vLLM: Llama-3.1-8B-FP8 (NVIDIA-Optimized 8B)
+
+- **Single Request:** ~9-10 tokens/sec
+- **Batched (16-32 concurrent):** ~150-250 tokens/sec aggregate
+- **Batched (48-64 concurrent):** ~450-500 tokens/sec aggregate
+- **Context:** Full 32K tokens supported (128K native)
+- **KV Cache:** ~80-85 GB, ~350,000+ tokens capacity
+
+### vLLM: Mistral-NeMo-12B-FP8 (Long-Context 12B)
+
+- **Single Request:** ~8-9 tokens/sec
+- **Batched (16-32 concurrent):** ~150-230 tokens/sec aggregate
+- **Batched (48-64 concurrent):** ~400-450 tokens/sec aggregate
+- **Context:** 65K tokens configured (128K native max)
+- **KV Cache:** ~75-80 GB, ~280,000+ tokens capacity at 65K context
 
 ### vLLM: Qwen3-32B-FP8 (Baseline Dense 32B)
 
@@ -405,13 +522,16 @@ For maximum performance on DGX Spark:
 ├── README.md                      # Platform overview
 ├── CLAUDE.md                      # This file (AI assistant guide)
 ├── docs/
-│   ├── nvidia-spark.md           # Hardware & Docker setup
+│   ├── nvidia-spark.md               # Hardware & Docker setup
 │   ├── vllm/
-│   │   ├── qwen3-32b-fp8.md     # vLLM Qwen3-32B configuration
-│   │   ├── qwen3-30b-a3b-fp8.md # vLLM Qwen3-30B-A3B configuration
-│   │   └── llama33-70b-fp8.md   # vLLM Llama 3.3 70B configuration
+│   │   ├── qwen3-8b-fp8.md           # vLLM Qwen3-8B configuration
+│   │   ├── llama31-8b-fp8.md         # vLLM Llama-3.1-8B configuration
+│   │   ├── mistral-nemo-12b-fp8.md   # vLLM Mistral-NeMo-12B configuration
+│   │   ├── qwen3-32b-fp8.md          # vLLM Qwen3-32B configuration
+│   │   ├── qwen3-30b-a3b-fp8.md      # vLLM Qwen3-30B-A3B configuration
+│   │   └── llama33-70b-fp8.md        # vLLM Llama 3.3 70B configuration
 │   └── ollama/
-│       └── qwen3-32b-fp8.md     # Ollama configuration
+│       └── qwen3-32b-fp8.md          # Ollama configuration
 ├── tools/
 │   ├── perftest-models.js        # Model-vs-model comparison
 │   └── perftest.js               # Provider comparison (Ollama vs vLLM)
@@ -421,7 +541,7 @@ For maximum performance on DGX Spark:
 ```
 
 **Storage Locations:**
-- `/opt/hf` - vLLM model cache (~32GB Qwen3-32B, ~30GB Qwen3-30B-A3B, ~35GB Llama 3.3 70B)
+- `/opt/hf` - vLLM model cache (~8GB Qwen3-8B, ~8GB Llama-3.1-8B, ~12GB Mistral-NeMo-12B, ~32GB Qwen3-32B, ~30GB Qwen3-30B-A3B, ~35GB Llama 3.3 70B)
 - `/opt/ollama` - Ollama model storage (~35-40GB)
 
 ---
@@ -487,7 +607,7 @@ df -h /opt
 - **Subsequent starts are faster** - Models cached locally at `/opt/hf` (vLLM) and `/opt/ollama` (Ollama)
 - **Memory bandwidth is the bottleneck** - Not compute capacity (273 GB/s limitation)
 - **Batching is essential** - Single-request performance is hardware-limited
-- **Model selection matters** - Choose Qwen3-30B-A3B for efficiency, Llama 3.3 70B for quality/long-context
+- **Model selection matters** - Choose Qwen3-8B/Llama-3.1-8B for speed, Mistral-NeMo-12B for long-context, Qwen3-30B-A3B for efficiency, Llama 3.3 70B for quality
 
 ---
 
@@ -500,6 +620,9 @@ df -h /opt
 
 ### Model Documentation
 
+- **docs/vllm/qwen3-8b-fp8.md** - vLLM Qwen3-8B-FP8 configuration and tuning
+- **docs/vllm/llama31-8b-fp8.md** - vLLM Llama-3.1-8B-FP8 configuration and tuning
+- **docs/vllm/mistral-nemo-12b-fp8.md** - vLLM Mistral-NeMo-12B-FP8 configuration and tuning
 - **docs/vllm/qwen3-32b-fp8.md** - vLLM Qwen3-32B-FP8 configuration and tuning
 - **docs/vllm/qwen3-30b-a3b-fp8.md** - vLLM Qwen3-30B-A3B-FP8 configuration and tuning
 - **docs/vllm/llama33-70b-fp8.md** - vLLM Llama 3.3 70B-FP8 configuration and tuning
@@ -520,6 +643,6 @@ df -h /opt
 
 ---
 
-**Last Updated:** 2025-11-08
+**Last Updated:** 2025-11-10
 **Repository Purpose:** Multi-provider inference platform for DGX Spark
-**Current Models:** Qwen3-32B-FP8, Qwen3-30B-A3B-FP8, Llama 3.3 70B-FP8 (vLLM); Qwen3-32B-FP8 (Ollama)
+**Current Models:** Qwen3-8B-FP8, Llama-3.1-8B-FP8, Mistral-NeMo-12B-FP8, Qwen3-32B-FP8, Qwen3-30B-A3B-FP8, Llama 3.3 70B-FP8 (vLLM); Qwen3-32B-FP8 (Ollama)
