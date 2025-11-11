@@ -101,9 +101,37 @@ Two automated CLI testing tools included:
 
 ## Latest Performance Results
 
+### Fast Chat Models (8B-12B) - NEW! ⚡
+
+**Test Date:** 2025-11-11 | **Hardware:** DGX Spark GB10 (128GB unified memory)
+
+**Single-Request Latency (500 tokens output)**
+
+| Model | Architecture | TTFT | Tokens/sec | Winner |
+|-------|--------------|------|------------|--------|
+| **Llama-3.1-8B** | Dense 8B | **52ms** | **23.88** | ⚡ **FASTEST** |
+| Qwen3-8B | Dense 8B | 71ms | 21.96 | Close second |
+| Mistral-NeMo-12B | Dense 12B | 85ms | 15.66 | Long-context specialist |
+
+**Long-Context Performance (32K tokens input)**
+
+| Model | TTFT | Total Time |
+|-------|------|------------|
+| **Llama-3.1-8B** | **1,232ms** | **6.4s** ⚡ |
+| Qwen3-8B | 1,418ms | 7.1s |
+| Mistral-NeMo-12B | 2,229ms | 7.2s |
+
+**Winner:** Llama-3.1-8B-FP8 (NVIDIA-optimized) delivers **fastest performance** across all tests with 23.88 tok/s
+
+**Full report:** `docs/reports/model-comparison-2025-11-11T10-13-00-374Z.txt`
+
+---
+
+### Dense & MoE Models (30B-70B)
+
 **Test Date:** 2025-11-09 | **Hardware:** DGX Spark GB10 (128GB unified memory)
 
-### Single-Request Latency (500 tokens output)
+**Single-Request Latency (500 tokens output)**
 
 | Model | Architecture | TTFT | Tokens/sec | Winner |
 |-------|--------------|------|------------|--------|
@@ -111,7 +139,7 @@ Two automated CLI testing tools included:
 | Qwen3-32B | Dense 32B | 205ms | 6.25 | Baseline |
 | Llama 3.3 70B | Dense 70B | 396ms | 2.74 | Highest quality |
 
-### Long-Context Performance (32K tokens input)
+**Long-Context Performance (32K tokens input)**
 
 | Model | TTFT | Total Time |
 |-------|------|------------|
