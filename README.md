@@ -19,10 +19,21 @@ echo "HF_TOKEN=hf_your_token_here" > .env
 sudo mkdir -p /opt/hf /opt/ollama
 sudo chown -R $(id -u):$(id -g) /opt/hf /opt/ollama
 
-# 3. Start a model (only one vLLM service at a time)
-docker compose up -d vllm-qwen3-8b-fp8  # Recommended: Fastest
+# 3. Choose and start a model (only one vLLM service at a time)
+# Speed Priority (8B-12B models):
+docker compose up -d vllm-qwen3-8b-fp8        # ⚡ Fastest: ~10 tok/s
+docker compose up -d vllm-llama31-8b-fp8      # NVIDIA-optimized: ~10 tok/s
+docker compose up -d vllm-mistral-nemo-12b-fp8 # Long-context (65K): ~9 tok/s
 
-# 4. Test inference
+# Quality Priority (30B-70B models):
+docker compose up -d vllm-qwen3-30b-a3b-fp8   # MoE efficient: ~9 tok/s
+docker compose up -d vllm-qwen3-32b-fp8        # Dense baseline: ~7 tok/s
+docker compose up -d vllm-llama33-70b-fp8      # Max quality: ~6 tok/s
+
+# Development/Testing (Ollama):
+docker compose up -d ollama-qwen3-32b-fp8     # Port 11434: ~5-8 tok/s
+
+# 4. Test inference (vLLM models on port 8000)
 curl -X POST http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model": "Qwen/Qwen3-8B-FP8", "messages": [{"role": "user", "content": "Hello!"}]}'
@@ -32,7 +43,8 @@ curl -X POST http://localhost:8000/v1/chat/completions \
 
 ## Available Models
 
-All models use vLLM on port 8000 (run one at a time):
+### vLLM Models (Port 8000)
+Run one vLLM model at a time - all share port 8000:
 
 | Service | Model | Type | Context | Best For |
 |---------|-------|------|---------|----------|
@@ -41,8 +53,14 @@ All models use vLLM on port 8000 (run one at a time):
 | `vllm-mistral-nemo-12b-fp8` | Mistral-NeMo-12B-FP8 | Dense 12B | **65K** | **Long-context** (128K native) |
 | `vllm-qwen3-32b-fp8` | Qwen3-32B-FP8 | Dense 32B | 32K | Balanced (~7 tok/s) |
 | `vllm-qwen3-30b-a3b-fp8` | Qwen3-30B-A3B-FP8 | MoE (3B active) | 32K | Efficient MoE (~9 tok/s) |
-| `vllm-llama33-70b-fp8` | Llama 3.3 70B-FP8 | Dense 70B | 65K | Max Quality (~6 tok/s) |
-| `ollama-qwen3-32b-fp8` | Qwen3:32b-q8_0 | Dense 32B | 32K | vLLM comparison |
+| `vllm-llama33-70b-fp8` | Llama 3.3 70B-FP8 | Dense 70B | **65K** | **Max Quality** (~6 tok/s) |
+
+### Ollama Model (Port 11434)
+Can run alongside vLLM (different port):
+
+| Service | Model | Type | Context | Best For |
+|---------|-------|------|---------|----------|
+| `ollama-qwen3-32b-fp8` | Qwen3:32b-q8_0 | Dense 32B | 32K | Development/Testing (~5-8 tok/s) |
 
 **Performance estimates for single-request throughput on DGX Spark GB10**
 
@@ -58,10 +76,50 @@ docker compose logs -f <service-name>
 # Stop model
 docker compose stop <service-name>
 
+# Stop all vLLM services
+docker compose stop vllm-qwen3-8b-fp8 vllm-llama31-8b-fp8 vllm-mistral-nemo-12b-fp8 vllm-qwen3-32b-fp8 vllm-qwen3-30b-a3b-fp8 vllm-llama33-70b-fp8
+
 # GPU status
 nvidia-smi
 docker exec <service-name> nvidia-smi
+
+# vLLM metrics (for running service)
+curl http://localhost:8000/metrics
 ```
+
+---
+
+## Model Selection Guide
+
+### By Use Case
+
+**Maximum Speed & Throughput:**
+- **Qwen3-8B-FP8** - Fastest overall, best batched throughput (450-500 tok/s)
+- **Llama-3.1-8B-FP8** - NVIDIA-optimized, equally fast with better instruction following
+
+**Long-Context Processing:**
+- **Mistral-NeMo-12B-FP8** - 65K configured (128K native), ideal for documents
+- **Llama 3.3 70B-FP8** - 65K configured with maximum quality
+
+**Balanced Performance:**
+- **Qwen3-30B-A3B-FP8** - MoE architecture, efficient memory usage, good latency
+- **Qwen3-32B-FP8** - Dense baseline, proven performance
+
+**Maximum Quality:**
+- **Llama 3.3 70B-FP8** - Highest quality, complex reasoning, long-context analysis
+
+**Development/Testing:**
+- **Ollama Qwen3-32B-FP8** - Simple API, easy model management, runs on port 11434
+
+### Memory Footprint
+
+| Model | Model Size | KV Cache | Total Memory |
+|-------|-----------|----------|--------------|
+| Qwen3-8B / Llama-3.1-8B | ~8 GB | ~80-85 GB | ~88-93 GB |
+| Mistral-NeMo-12B | ~12 GB | ~75-80 GB | ~87-92 GB |
+| Qwen3-30B-A3B | ~30 GB | ~55-70 GB | ~85-100 GB |
+| Qwen3-32B | ~32 GB | ~66 GB | ~98 GB |
+| Llama 3.3 70B | ~35 GB | ~40-60 GB | ~75-95 GB |
 
 ---
 
@@ -254,6 +312,7 @@ Simply open this repository in Claude Code to get intelligent assistance with mo
 Provided as-is for NVIDIA DGX Spark systems. Model licenses apply:
 - **Qwen Models:** [Tongyi Qianwen License](https://huggingface.co/Qwen)
 - **Llama Models:** [Llama 3 Community License](https://huggingface.co/meta-llama)
+- **Mistral Models:** [Apache 2.0 License](https://huggingface.co/mistralai)
 
 ---
 
