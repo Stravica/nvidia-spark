@@ -235,6 +235,46 @@ services:
               count: all
               capabilities: [gpu]
 
+  vllm-gpt-oss-20b-mxfp4:
+    image: nvcr.io/nvidia/vllm:25.09-py3
+    container_name: vllm-gpt-oss-20b-mxfp4
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      HF_TOKEN: "${HF_TOKEN}"
+      HUGGING_FACE_HUB_TOKEN: "${HF_TOKEN}"
+      VLLM_USE_FLASHINFER_MXFP4_MOE: "1"
+    ipc: host
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    command:
+      - vllm
+      - serve
+      - openai/gpt-oss-20b
+      - --download-dir
+      - /root/.cache/huggingface
+      - --max-model-len
+      - "32768"
+      - --gpu-memory-utilization
+      - "0.90"
+      - --max-num-batched-tokens
+      - "32768"
+      - --max-num-seqs
+      - "32"
+      - --enable-prefix-caching
+      - --trust-remote-code
+    volumes:
+      - /opt/hf:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
   ollama-qwen3-32b-fp8:
     image: ollama/ollama:latest
     container_name: ollama-qwen3-32b-fp8
