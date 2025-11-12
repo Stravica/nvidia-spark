@@ -57,6 +57,8 @@ services:
       - vllm
       - serve
       - Qwen/Qwen3-30B-A3B-Instruct-2507-FP8
+      - --served-model-name
+      - qwen3-30b-a3b-fp8
       - --download-dir
       - /root/.cache/huggingface
       - --max-model-len
