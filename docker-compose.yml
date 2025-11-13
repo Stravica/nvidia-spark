@@ -30,6 +30,9 @@ services:
       - "64"
       - --enable-prefix-caching
       - --trust-remote-code
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - hermes
     volumes:
       - /opt/hf:/root/.cache/huggingface
     deploy:
@@ -71,6 +74,9 @@ services:
       - "64"
       - --enable-prefix-caching
       - --trust-remote-code
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - hermes
     volumes:
       - /opt/hf:/root/.cache/huggingface
     deploy:
@@ -110,6 +116,9 @@ services:
       - "32"
       - --enable-prefix-caching
       - --trust-remote-code
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - llama3_json
     volumes:
       - /opt/hf:/root/.cache/huggingface
     deploy:
@@ -149,6 +158,9 @@ services:
       - "64"
       - --enable-prefix-caching
       - --trust-remote-code
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - hermes
     volumes:
       - /opt/hf:/root/.cache/huggingface
     deploy:
@@ -188,6 +200,9 @@ services:
       - "64"
       - --enable-prefix-caching
       - --trust-remote-code
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - llama3_json
     volumes:
       - /opt/hf:/root/.cache/huggingface
     deploy:
@@ -227,6 +242,9 @@ services:
       - "64"
       - --enable-prefix-caching
       - --trust-remote-code
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - mistral
     volumes:
       - /opt/hf:/root/.cache/huggingface
     deploy:
