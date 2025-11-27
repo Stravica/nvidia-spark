@@ -188,6 +188,8 @@ services:
       - vllm
       - serve
       - nvidia/Llama-3.1-8B-Instruct-FP8
+      - --served-model-name
+      - llama31-8b-fp8
       - --download-dir
       - /root/.cache/huggingface
       - --max-model-len
