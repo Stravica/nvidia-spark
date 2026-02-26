@@ -26,7 +26,8 @@ docker compose up -d vllm-llama31-8b-fp8      # NVIDIA-optimized: ~10 tok/s
 docker compose up -d vllm-mistral-nemo-12b-fp8 # Long-context (65K): ~9 tok/s
 
 # Quality Priority (30B-70B models):
-docker compose up -d vllm-qwen3-30b-a3b-fp8   # MoE efficient: ~9 tok/s
+docker compose up -d vllm-qwen35-35b-a3b-fp8   # ⚡ Fastest single-req: ~48 tok/s
+docker compose up -d vllm-qwen3-30b-a3b-fp8   # MoE efficient: ~42 tok/s
 docker compose up -d vllm-qwen3-32b-fp8        # Dense baseline: ~7 tok/s
 docker compose up -d vllm-llama33-70b-fp8      # Max quality: ~6 tok/s
 
@@ -52,7 +53,8 @@ Run one vLLM model at a time - all share port 8000:
 | `vllm-llama31-8b-fp8` | Llama-3.1-8B-FP8 | Dense 8B | 32K | NVIDIA-optimized (~10 tok/s) |
 | `vllm-mistral-nemo-12b-fp8` | Mistral-NeMo-12B-FP8 | Dense 12B | **65K** | **Long-context** (128K native) |
 | `vllm-qwen3-32b-fp8` | Qwen3-32B-FP8 | Dense 32B | 32K | Balanced (~7 tok/s) |
-| `vllm-qwen3-30b-a3b-fp8` | Qwen3-30B-A3B-FP8 | MoE (3B active) | 32K | Efficient MoE (~9 tok/s) |
+| `vllm-qwen3-30b-a3b-fp8` | Qwen3-30B-A3B-FP8 | MoE (3B active) | 32K | Efficient MoE (~42 tok/s) |
+| `vllm-qwen35-35b-a3b-fp8` | Qwen3.5-35B-A3B-FP8 | DeltaNet MoE (3B active) | 32K | **Fastest + Reasoning** (~48 tok/s) |
 | `vllm-llama33-70b-fp8` | Llama 3.3 70B-FP8 | Dense 70B | **65K** | **Max Quality** (~6 tok/s) |
 
 ### Ollama Model (Port 11434)
@@ -77,7 +79,7 @@ docker compose logs -f <service-name>
 docker compose stop <service-name>
 
 # Stop all vLLM services
-docker compose stop vllm-qwen3-8b-fp8 vllm-llama31-8b-fp8 vllm-mistral-nemo-12b-fp8 vllm-qwen3-32b-fp8 vllm-qwen3-30b-a3b-fp8 vllm-llama33-70b-fp8
+docker compose stop vllm-qwen3-8b-fp8 vllm-llama31-8b-fp8 vllm-mistral-nemo-12b-fp8 vllm-qwen3-32b-fp8 vllm-qwen3-30b-a3b-fp8 vllm-qwen35-35b-a3b-fp8 vllm-llama33-70b-fp8
 
 # GPU status
 nvidia-smi
@@ -101,8 +103,11 @@ curl http://localhost:8000/metrics
 - **Mistral-NeMo-12B-FP8** - 65K configured (128K native), ideal for documents
 - **Llama 3.3 70B-FP8** - 65K configured with maximum quality
 
+**Fastest Single-Request + Reasoning:**
+- **Qwen3.5-35B-A3B-FP8** - Hybrid DeltaNet MoE, ~48 tok/s, built-in thinking/reasoning, tool calling
+
 **Balanced Performance:**
-- **Qwen3-30B-A3B-FP8** - MoE architecture, efficient memory usage, good latency
+- **Qwen3-30B-A3B-FP8** - MoE architecture, efficient memory usage, ~42 tok/s
 - **Qwen3-32B-FP8** - Dense baseline, proven performance
 
 **Maximum Quality:**
@@ -118,6 +123,7 @@ curl http://localhost:8000/metrics
 | Qwen3-8B / Llama-3.1-8B | ~8 GB | ~80-85 GB | ~88-93 GB |
 | Mistral-NeMo-12B | ~12 GB | ~75-80 GB | ~87-92 GB |
 | Qwen3-30B-A3B | ~30 GB | ~55-70 GB | ~85-100 GB |
+| Qwen3.5-35B-A3B | ~37.5 GB | ~55-70 GB | ~90-108 GB |
 | Qwen3-32B | ~32 GB | ~66 GB | ~98 GB |
 | Llama 3.3 70B | ~35 GB | ~40-60 GB | ~75-95 GB |
 
@@ -211,6 +217,7 @@ Automated CLI testing tool included:
 - **[Mistral-NeMo-12B-FP8](docs/vllm/mistral-nemo-12b-fp8.md)** - Long-context specialist (65K/128K)
 - **[Qwen3-32B-FP8](docs/vllm/qwen3-32b-fp8.md)** - Dense baseline
 - **[Qwen3-30B-A3B-FP8](docs/vllm/qwen3-30b-a3b-fp8.md)** - MoE model
+- **[Qwen3.5-35B-A3B-FP8](docs/vllm/qwen35-35b-a3b-fp8.md)** - Hybrid DeltaNet MoE (fastest + reasoning)
 - **[Llama 3.3 70B-FP8](docs/vllm/llama33-70b-fp8.md)** - Maximum quality
 - **[Ollama Qwen3-32B](docs/ollama/qwen3-32b-fp8.md)** - Provider comparison
 
@@ -272,6 +279,7 @@ Simply open this repository in Claude Code to get intelligent assistance with mo
 │   │   ├── mistral-nemo-12b-fp8.md   # 12B long-context
 │   │   ├── qwen3-32b-fp8.md          # 32B baseline
 │   │   ├── qwen3-30b-a3b-fp8.md      # 30B MoE
+│   │   ├── qwen35-35b-a3b-fp8.md     # 35B DeltaNet MoE (fastest)
 │   │   └── llama33-70b-fp8.md        # 70B max quality
 │   ├── ollama/                       # Ollama configurations
 │   │   └── qwen3-32b-fp8.md          # Provider comparison
@@ -288,7 +296,7 @@ Simply open this repository in Claude Code to get intelligent assistance with mo
 - **One vLLM model at a time** - All use port 8000
 - **First load is slow** - Model downloads: 8-15 minutes (cached locally afterward)
 - **Memory bandwidth limited** - 273 GB/s vs 900+ GB/s on datacenter GPUs
-- **MoE architecture wins** - Qwen3-30B-A3B significantly outperforms dense models
+- **MoE/DeltaNet architecture wins** - Qwen3.5-35B-A3B (~48 tok/s) and Qwen3-30B-A3B (~42 tok/s) significantly outperform dense models
 - **FP8 quantization required** - Essential for Spark's unified memory architecture
 - **Batching increases throughput** - Single-request performance is hardware-limited
 
