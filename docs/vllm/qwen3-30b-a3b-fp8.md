@@ -77,10 +77,10 @@ For detailed hardware specifications, see [docs/nvidia-spark.md](../nvidia-spark
 
 - **Primary Bottleneck:** Memory bandwidth (273 GB/s)
 - **Optimization Strategy:** FP8 quantization + aggressive batching + prefix caching + MoE efficiency
-- **Expected Performance:**
-  - Single request: ~7-9 tokens/sec generation (better than dense 32B due to MoE)
+- **Measured Performance (benchmarked 2026-02-26):**
+  - Single request: ~42 tokens/sec generation (MoE activates only 3B params per token)
   - Batched (32-64 concurrent): ~200-350 tokens/sec aggregate
-  - Time to first token: 150-400ms (depends on prompt length)
+  - Time to first token: ~40-160ms (depends on prompt length and cache)
 - **FP8 Advantages:**
   - Model memory: ~30 GB (50% reduction vs BF16)
   - KV cache: ~55-70 GB (more headroom than Qwen3-32B-FP8)
@@ -423,7 +423,7 @@ done
 ```
 
 **Expected Results:**
-- Single request: ~7-9 tok/s
+- Single request: ~42 tok/s
 - 16 concurrent: ~100-150 tok/s aggregate
 - 64 concurrent: ~200-350 tok/s aggregate
 
@@ -498,7 +498,7 @@ curl http://localhost:8000/metrics | grep gpu_cache_usage_perc
 | **KV Cache (85% util)** | ~55 GB | ~66 GB |
 | **Total Memory** | ~85 GB | ~98 GB |
 | **Context Length** | 32,768 | 32,768 |
-| **Single Request TPS** | ~7-9 tok/s | ~6-7 tok/s |
+| **Single Request TPS** | ~42 tok/s | ~6 tok/s |
 | **Batched TPS (64 concurrent)** | ~200-350 tok/s | ~300-400 tok/s |
 | **Quality** | 95-98% of dense 30B | Baseline |
 | **Best For** | Mixed workloads, efficiency | Maximum throughput |
@@ -625,7 +625,7 @@ curl http://localhost:8000/metrics | grep gpu_cache_usage_perc
 
 ---
 
-**Last Updated:** 2025-11-08
+**Last Updated:** 2026-02-26
 **Model:** Qwen3-30B-A3B-Instruct-2507-FP8
 **vLLM Version:** 0.10.1.1+381074ae.nv25.09
 **Container:** nvcr.io/nvidia/vllm:25.09-py3

@@ -98,10 +98,10 @@ For detailed hardware specifications, see [docs/nvidia-spark.md](../nvidia-spark
 
 - **Primary Bottleneck:** Memory bandwidth (273 GB/s)
 - **Optimization Strategy:** FP8 quantization + DeltaNet efficiency + batching + prefix caching + MoE
-- **Expected Performance:**
-  - Single request: ~8-12 tokens/sec generation (DeltaNet layers are faster than standard attention)
+- **Measured Performance (benchmarked 2026-02-26):**
+  - Single request: ~48 tokens/sec generation (fastest in platform, DeltaNet + MoE efficiency)
   - Batched (32-64 concurrent): ~200-400 tokens/sec aggregate
-  - Time to first token: 100-300ms (DeltaNet O(n) prefill is faster than O(n^2) attention)
+  - Time to first token: ~100-250ms (depends on prompt length and cache; DeltaNet O(n) prefill)
 - **FP8 Advantages:**
   - Model memory: ~37.5 GB (50% reduction vs BF16)
   - Quality: Nearly identical to full precision (fine-grained FP8 with block size 128)
@@ -556,7 +556,7 @@ done
 ```
 
 **Expected Results:**
-- Single request: ~8-12 tok/s
+- Single request: ~48 tok/s
 - 16 concurrent: ~100-200 tok/s aggregate
 - 64 concurrent: ~200-400 tok/s aggregate
 
@@ -636,7 +636,7 @@ curl http://localhost:8000/metrics | grep gpu_cache_usage_perc
 | **Total Memory** | ~90-108 GB | ~85-100 GB |
 | **Native Context** | 262,144 tokens | 32,768 tokens |
 | **Configured Context** | 32,768 (expandable) | 32,768 |
-| **Single Request TPS** | ~8-12 tok/s | ~7-9 tok/s |
+| **Single Request TPS** | ~48 tok/s | ~42 tok/s |
 | **Batched TPS (64)** | ~200-400 tok/s | ~200-350 tok/s |
 | **Thinking Mode** | Native support | Not available |
 | **Tool Calling** | `qwen3_coder` (native) | `hermes` (generic) |

@@ -88,10 +88,10 @@ For detailed hardware specifications, see [docs/nvidia-spark.md](../nvidia-spark
 ### Key Performance Characteristics
 - **Primary Bottleneck:** Memory bandwidth (273 GB/s)
 - **Optimization Strategy:** FP8 quantization + aggressive batching + prefix caching
-- **Measured Performance:**
-  - Single request: ~9-10 tokens/sec generation
+- **Measured Performance (benchmarked 2026-02-26):**
+  - Single request: ~24 tokens/sec generation
   - Batched (64 concurrent): ~450-500 tokens/sec aggregate (estimated)
-  - Time to first token: 100-300ms (depends on prompt length)
+  - Time to first token: ~50-90ms (depends on prompt length and cache)
 - **FP8 Advantages:**
   - Model memory: ~8 GB (50% reduction vs BF16)
   - KV cache: ~80-85 GB (maximum cache allocation)
@@ -179,7 +179,7 @@ services:
 - KV cache: ~80-85 GB (largest cache in platform)
 - Concurrent sequences: 64+ (optimal for DGX Spark)
 - Context length: 32K configured (128K native max)
-- Single-request TPS: ~9-10 (fastest in platform)
+- Single-request TPS: ~24
 - Batched TPS: ~450-500 (highest in platform)
 
 ## Deployment
@@ -378,10 +378,12 @@ docker stats vllm-llama31-8b-fp8
 
 | Model | Parameters | Model Memory | KV Cache | Single TPS | Batched TPS | Concurrency |
 |-------|-----------|--------------|----------|------------|-------------|-------------|
-| Qwen3-8B-FP8 | 8B | ~8 GB | ~80-85 GB | ~9-10 | ~450-500 | 64+ |
-| **Llama-3.1-8B-FP8** | 8B | ~8 GB | ~80-85 GB | ~9-10 | ~450-500 | 64+ |
+| Qwen3-8B-FP8 | 8B | ~8 GB | ~80-85 GB | ~21 | ~450-500 | 64+ |
+| **Llama-3.1-8B-FP8** | 8B | ~8 GB | ~80-85 GB | ~24 | ~450-500 | 64+ |
+| Qwen3-30B-A3B-FP8 | 30B (3B active) | ~30 GB | ~55-70 GB | ~42 | ~200-350 | 64 |
+| Qwen3.5-35B-A3B-FP8 | 35B (3B active) | ~37.5 GB | ~55-70 GB | ~48 | ~200-400 | 64 |
 | Mistral-NeMo-12B-FP8 | 12B | ~12 GB | ~75-80 GB | ~8-9 | ~400-450 | 64 |
-| Qwen3-32B-FP8 | 32B | ~32 GB | ~66 GB | ~6-7 | ~300-400 | 64 |
+| Qwen3-32B-FP8 | 32B | ~32 GB | ~66 GB | ~6 | ~300-400 | 64 |
 | Llama-3.3-70B-FP8 | 70B | ~35 GB | ~40-60 GB | ~5-7 | ~80-150 | 32 |
 
 **Llama-3.1-8B-FP8 Advantages:**
@@ -522,7 +524,7 @@ Full API documentation: https://docs.vllm.ai/en/latest/serving/openai_compatible
 
 ---
 
-**Last Updated:** 2025-11-10
+**Last Updated:** 2026-02-26
 **Model:** nvidia/Llama-3.1-8B-Instruct-FP8
 **vLLM Version:** 0.10.1.1+381074ae.nv25.09
 **Container:** nvcr.io/nvidia/vllm:25.09-py3

@@ -25,10 +25,10 @@ For detailed hardware specifications, see [docs/nvidia-spark.md](../nvidia-spark
 ### Key Performance Characteristics
 - **Primary Bottleneck:** Memory bandwidth (273 GB/s)
 - **Optimization Strategy:** FP8 quantization + aggressive batching + prefix caching
-- **Measured Performance:**
-  - Single request: ~6-7 tokens/sec generation
+- **Measured Performance (benchmarked 2026-02-26):**
+  - Single request: ~6 tokens/sec generation
   - Batched (64 concurrent): ~300-400 tokens/sec aggregate (estimated)
-  - Time to first token: 200-500ms (depends on prompt length)
+  - Time to first token: ~170-230ms (depends on prompt length and cache)
 - **FP8 Advantages:**
   - Model memory: ~32 GB (50% reduction vs BF16)
   - KV cache: ~66 GB (2.4x more than BF16 configuration)
@@ -289,7 +289,7 @@ docker stats vllm-qwen3-32b-fp8
 
 ## Known Limitations
 
-1. **Memory Bandwidth Bottleneck:** 273 GB/s limits single-request token generation speed (~6-7 tokens/sec)
+1. **Memory Bandwidth Bottleneck:** 273 GB/s limits single-request token generation speed (~6 tokens/sec)
 2. **CUDA Graphs:** Limited capture sizes (max 96 vs 512 on datacenter GPUs) due to GB10 architecture
 3. **Throughput vs Latency Trade-off:** Optimized for aggregate throughput; batching is essential for maximum performance
 4. **Context Length:** Full 32K native support, but reduces max concurrent sequences if all use full context
@@ -325,6 +325,6 @@ For comparison with Ollama serving the same model, see [docs/ollama/qwen3-32b-fp
 
 ---
 
-**Last Updated:** 2025-11-07
+**Last Updated:** 2026-02-26
 **Tested On:** NVIDIA DGX Spark (GB10), CUDA 13.0, vLLM 0.10.1.1
 **Model:** Qwen/Qwen3-32B-FP8 (officially pre-quantized)

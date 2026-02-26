@@ -49,8 +49,8 @@ High-performance inference with OpenAI-compatible API. Compact 8B model (fastest
 - **Memory:** ~8 GB model, ~80-85 GB KV cache
 - **Context:** 32,768 tokens
 - **Concurrency:** 64+ concurrent requests
-- **Performance:** ~9-10 tok/s (single), ~450-500 tok/s (batched)
-- **Best For:** Maximum speed and throughput
+- **Performance:** ~21 tok/s (single), ~450-500 tok/s (batched)
+- **Best For:** Batched throughput, fast inference
 
 **Documentation:** `docs/vllm/qwen3-8b-fp8.md`
 
@@ -63,7 +63,7 @@ High-performance inference with OpenAI-compatible API. NVIDIA-optimized 8B model
 - **Memory:** ~8 GB model, ~80-85 GB KV cache
 - **Context:** 32,768 tokens (128K native)
 - **Concurrency:** 64+ concurrent requests
-- **Performance:** ~9-10 tok/s (single), ~450-500 tok/s (batched)
+- **Performance:** ~24 tok/s (single), ~450-500 tok/s (batched)
 - **Best For:** Fast inference, instruction following, NVIDIA optimization
 
 **Documentation:** `docs/vllm/llama31-8b-fp8.md`
@@ -91,8 +91,8 @@ High-performance inference with OpenAI-compatible API. Dense 32B model (baseline
 - **Memory:** ~32 GB model, ~66 GB KV cache
 - **Context:** 32,000 tokens
 - **Concurrency:** 64 concurrent requests
-- **Performance:** ~6-7 tok/s (single), ~300-400 tok/s (batched)
-- **Best For:** Maximum throughput with batching
+- **Performance:** ~6 tok/s (single), ~300-400 tok/s (batched)
+- **Best For:** Higher quality dense model, batched throughput
 
 **Documentation:** `docs/vllm/qwen3-32b-fp8.md`
 
@@ -105,8 +105,8 @@ High-performance inference with OpenAI-compatible API. MoE model (30B total, 3B 
 - **Memory:** ~30 GB model, ~55-70 GB KV cache
 - **Context:** 32,768 tokens
 - **Concurrency:** 64 concurrent requests
-- **Performance:** ~7-9 tok/s (single), ~200-350 tok/s (batched)
-- **Best For:** Efficiency, mixed workloads, better single-request latency
+- **Performance:** ~42 tok/s (single), ~200-350 tok/s (batched)
+- **Best For:** Efficiency, mixed workloads, fast single-request latency
 
 **Documentation:** `docs/vllm/qwen3-30b-a3b-fp8.md`
 
@@ -119,8 +119,8 @@ High-performance inference with OpenAI-compatible API. Hybrid DeltaNet MoE model
 - **Memory:** ~37.5 GB model, ~55-70 GB KV cache + DeltaNet state
 - **Context:** 32,768 tokens (262K native)
 - **Concurrency:** 64 concurrent requests
-- **Performance:** ~8-12 tok/s (single), ~200-400 tok/s (batched)
-- **Best For:** Improved quality, thinking/reasoning, efficient long-context, tool calling
+- **Performance:** ~48 tok/s (single), ~200-400 tok/s (batched)
+- **Best For:** Fastest single-request, thinking/reasoning, efficient long-context, tool calling
 - **Container:** `nvcr.io/nvidia/vllm:26.01-py3` (requires newer container than other models)
 
 **Documentation:** `docs/vllm/qwen35-35b-a3b-fp8.md`
@@ -448,26 +448,26 @@ Detailed configuration guides for deployed models:
 | **Total Memory** | ~88-93 GB | ~88-93 GB | ~87-92 GB | ~98 GB | ~85-100 GB | ~90-108 GB | ~75-95 GB |
 | **Context Length** | 32K | 32K (128K native) | 65K (128K native) | 32K | 32K | 32K (262K native) | 65K (128K) |
 | **Max Concurrency** | 64+ | 64+ | 64 | 64 | 64 | 64 | 32 |
-| **Single Request TPS** | ~9-10 | ~9-10 | ~8-9 | ~6-7 | ~7-9 | ~8-12 | ~5-7 |
+| **Single Request TPS** | ~21 | ~24 | ~8-9 | ~6 | ~42 | ~48 | ~5-7 |
 | **Batched TPS** | ~450-500 | ~450-500 | ~400-450 | ~300-400 | ~200-350 | ~200-400 | ~80-150 |
-| **Best For** | Max speed | NVIDIA-optimized | Long-context | High throughput | Efficiency | Quality + reasoning | Max quality |
+| **Best For** | Batched throughput | NVIDIA-optimized | Long-context | Dense quality | Efficiency | Fastest + reasoning | Max quality |
 
 **Model Selection Guide:**
-- **Qwen3-8B-FP8:** Choose for maximum speed, highest batched throughput, fastest single-request performance
-- **Llama-3.1-8B-FP8:** Choose for NVIDIA-optimized performance, instruction following, proven Meta architecture
+- **Qwen3.5-35B-A3B-FP8:** Choose for fastest single-request (~48 tok/s), thinking/reasoning, tool calling, long-context potential
+- **Qwen3-30B-A3B-FP8:** Choose for fast single-request (~42 tok/s), MoE efficiency, mixed workloads
+- **Llama-3.1-8B-FP8:** Choose for NVIDIA-optimized performance (~24 tok/s), instruction following, proven Meta architecture
+- **Qwen3-8B-FP8:** Choose for high batched throughput (~21 tok/s single), smallest memory footprint
 - **Mistral-NeMo-12B-FP8:** Choose for long-context tasks (65K), document analysis, balanced quality/speed
-- **Qwen3-32B-FP8:** Choose for higher quality than 8B models, proven baseline performance
-- **Qwen3-30B-A3B-FP8:** Choose for better single-request latency (MoE), more memory headroom, mixed workloads
-- **Qwen3.5-35B-A3B-FP8:** Choose for improved quality over Qwen3-30B-A3B, thinking/reasoning, tool calling, long-context potential
+- **Qwen3-32B-FP8:** Choose for dense model quality, proven baseline (~6 tok/s single)
 - **Llama 3.3 70B-FP8:** Choose for highest quality, complex reasoning, long-context analysis
 
 ---
 
 ## Performance Expectations
 
-### vLLM: Qwen3-8B-FP8 (Compact 8B, Fastest)
+### vLLM: Qwen3-8B-FP8 (Compact 8B)
 
-- **Single Request:** ~9-10 tokens/sec (fastest in platform)
+- **Single Request:** ~21 tokens/sec
 - **Batched (16-32 concurrent):** ~150-250 tokens/sec aggregate
 - **Batched (48-64 concurrent):** ~450-500 tokens/sec aggregate
 - **Context:** Full 32K tokens supported
@@ -475,7 +475,7 @@ Detailed configuration guides for deployed models:
 
 ### vLLM: Llama-3.1-8B-FP8 (NVIDIA-Optimized 8B)
 
-- **Single Request:** ~9-10 tokens/sec
+- **Single Request:** ~24 tokens/sec
 - **Batched (16-32 concurrent):** ~150-250 tokens/sec aggregate
 - **Batched (48-64 concurrent):** ~450-500 tokens/sec aggregate
 - **Context:** Full 32K tokens supported (128K native)
@@ -491,7 +491,7 @@ Detailed configuration guides for deployed models:
 
 ### vLLM: Qwen3-32B-FP8 (Baseline Dense 32B)
 
-- **Single Request:** ~6-7 tokens/sec
+- **Single Request:** ~6 tokens/sec
 - **Batched (16-32 concurrent):** ~100-200 tokens/sec aggregate
 - **Batched (48-64 concurrent):** ~300-400 tokens/sec aggregate
 - **Context:** Full 32K tokens supported
@@ -499,15 +499,15 @@ Detailed configuration guides for deployed models:
 
 ### vLLM: Qwen3-30B-A3B-FP8 (MoE 30B)
 
-- **Single Request:** ~7-9 tokens/sec (better than dense due to MoE)
+- **Single Request:** ~42 tokens/sec (MoE activates only 3B params per token)
 - **Batched (16-32 concurrent):** ~100-200 tokens/sec aggregate
 - **Batched (48-64 concurrent):** ~200-350 tokens/sec aggregate
 - **Context:** Full 32K tokens supported
 - **KV Cache:** ~55-70 GB (configurable via gpu_memory_utilization)
 
-### vLLM: Qwen3.5-35B-A3B-FP8 (Hybrid DeltaNet MoE 35B)
+### vLLM: Qwen3.5-35B-A3B-FP8 (Hybrid DeltaNet MoE 35B, Fastest)
 
-- **Single Request:** ~8-12 tokens/sec (DeltaNet linear attention faster than standard)
+- **Single Request:** ~48 tokens/sec (fastest in platform, DeltaNet + MoE efficiency)
 - **Batched (16-32 concurrent):** ~100-200 tokens/sec aggregate
 - **Batched (48-64 concurrent):** ~200-400 tokens/sec aggregate
 - **Context:** 32K configured (262K native, expandable on Spark)
