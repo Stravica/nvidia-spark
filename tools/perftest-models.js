@@ -17,7 +17,7 @@
  */
 
 import { execSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 
 // ============================================================================
 // Logger - Captures stdout for exact report generation
@@ -214,6 +214,14 @@ function processServiceCommand(service, commandArgs) {
       break;
     }
   }
+
+  // Find --served-model-name (overrides model ID for API calls)
+  for (let i = 0; i < commandArgs.length; i++) {
+    if (commandArgs[i] === '--served-model-name' && i + 1 < commandArgs.length) {
+      service.modelId = commandArgs[i + 1];
+      break;
+    }
+  }
 }
 
 // ============================================================================
@@ -335,15 +343,19 @@ async function runVllmChatCompletion(modelId, prompt, maxTokens, temperature = 0
         try {
           const data = JSON.parse(line.slice(6));
 
-          // Record TTFT on first content chunk
-          if (firstTokenTime === null && data.choices?.[0]?.delta?.content) {
+          // Record TTFT on first content or reasoning chunk
+          if (firstTokenTime === null &&
+              (data.choices?.[0]?.delta?.content || data.choices?.[0]?.delta?.reasoning_content)) {
             firstTokenTime = performance.now();
             metrics.ttft = firstTokenTime - startTime;
           }
 
-          // Accumulate content
+          // Accumulate content (including reasoning tokens)
           if (data.choices?.[0]?.delta?.content) {
             metrics.content += data.choices[0].delta.content;
+            metrics.chunks++;
+          }
+          if (data.choices?.[0]?.delta?.reasoning_content) {
             metrics.chunks++;
           }
 
@@ -738,6 +750,7 @@ function parseArgs() {
   const args = process.argv.slice(2);
   const config = {
     models: [],  // Empty = test all discovered models
+    skip: [],    // Models to exclude from testing
     iterations: CONFIG.ITERATIONS,
   };
 
@@ -746,6 +759,13 @@ function parseArgs() {
 
     if (arg === '--iterations') {
       config.iterations = parseInt(args[++i], 10);
+    } else if (arg === '--skip') {
+      const skipArg = args[++i];
+      if (!skipArg) {
+        console.error('--skip requires a comma-separated list of model names');
+        process.exit(1);
+      }
+      config.skip = skipArg.split(',').map(m => m.trim()).filter(m => m);
     } else if (arg === '--help') {
       printHelp();
       process.exit(0);
@@ -775,14 +795,17 @@ Arguments:
                        If omitted, all discovered vLLM services will be tested
 
 Options:
+  --skip <models>      Comma-separated list of models to exclude
   --iterations <n>     Number of test runs per test (default: ${CONFIG.ITERATIONS})
   --help               Show this help message
 
 Examples:
-  ./perftest-models.js                         # Test all discovered vLLM services
-  ./perftest-models.js model1,model2           # Test only specific models
-  ./perftest-models.js --iterations 5          # Test all with 5 iterations
-  ./perftest-models.js model1 --iterations 10  # Test specific model with 10 iterations
+  ./perftest-models.js                                  # Test all discovered vLLM services
+  ./perftest-models.js model1,model2                    # Test only specific models
+  ./perftest-models.js --skip qwen3-32b-fp8             # Skip specific model
+  ./perftest-models.js --skip qwen3-32b-fp8,llama33-70b-fp8  # Skip multiple models
+  ./perftest-models.js --iterations 5                   # Test all with 5 iterations
+  ./perftest-models.js model1 --iterations 10           # Test specific model with 10 iterations
 
 Tests:
   1. Single-Request Latency - Fixed 500 token output with minimal input
@@ -837,6 +860,20 @@ Model Discovery:
       }
     }
 
+    // Apply --skip filter
+    if (cliConfig.skip.length > 0) {
+      const beforeCount = modelsToTest.length;
+      modelsToTest = modelsToTest.filter(m => !cliConfig.skip.includes(m.name));
+
+      // Warn about skip names that don't match any model
+      const invalidSkips = cliConfig.skip.filter(name =>
+        !allModels.some(m => m.name === name)
+      );
+      if (invalidSkips.length > 0) {
+        console.warn(`   ⚠️  Unknown models in --skip: ${invalidSkips.join(', ')}`);
+      }
+    }
+
     // Display discovered models
     for (const model of allModels) {
       const willTest = modelsToTest.includes(model);
@@ -877,6 +914,7 @@ Model Discovery:
     logger.stop();
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('.')[0];
     const reportPath = `docs/reports/model-comparison-${timestamp}.txt`;
+    mkdirSync('docs/reports', { recursive: true });
     writeFileSync(reportPath, logger.getOutput(), 'utf8');
     console.log(`📄 Report saved to: ${reportPath}\n`);
 

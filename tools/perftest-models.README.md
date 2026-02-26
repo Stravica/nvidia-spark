@@ -106,6 +106,10 @@ On most inference hardware, **output generation is significantly slower than inp
 # Test only specific models (comma-separated, no spaces)
 ./perftest-models.js model1,model2
 
+# Skip specific models
+./perftest-models.js --skip qwen3-32b-fp8
+./perftest-models.js --skip qwen3-32b-fp8,llama33-70b-fp8
+
 # Run with 5 iterations per test
 ./perftest-models.js --iterations 5
 
@@ -121,6 +125,7 @@ On most inference hardware, **output generation is significantly slower than inp
 | Option | Description | Default | Example |
 |--------|-------------|---------|---------|
 | `models` | Comma-separated list of model names (positional) | All discovered | `model1,model2` |
+| `--skip <models>` | Comma-separated list of models to exclude | None | `--skip qwen3-32b-fp8` |
 | `--iterations <n>` | Number of test runs per scenario | 3 | `--iterations 5` |
 | `--help` | Show help message | - | `--help` |
 
@@ -315,6 +320,8 @@ vllm-your-model:
     - vllm
     - serve
     - your/model-id        # Model will be auto-detected
+    - --served-model-name  # Optional: alias used for API calls (auto-detected)
+    - your-model-alias
     - --max-model-len
     - "32000"              # Context length will be extracted
     # ... other vLLM args
@@ -326,16 +333,23 @@ vllm-your-model:
 ./perftest-models.js your-model         # Test only new model
 ```
 
-**No code changes needed!** The tool automatically discovers and tests any vLLM service.
+**No code changes needed!** The tool automatically discovers and tests any vLLM service. If `--served-model-name` is set, it will be used as the model ID for API calls.
 
 ---
 
 ## Version History
 
+- **2026-02-26:** Bug fixes and improvements
+  - Added `--skip` flag for excluding models from testing
+  - Fixed `--served-model-name` parsing (models with aliases now test correctly)
+  - Added reasoning/thinking token support for TTFT detection
+  - Added `mkdirSync` to ensure report directory exists
+  - Removed `perftest.js` (provider comparison tool)
+
 - **2025-11-09:** Dynamic service discovery
   - Removed hardcoded model list
   - Added automatic service discovery from docker-compose.yml
-  - Simplified CLI (comma-separated models, removed --skip)
+  - Simplified CLI (comma-separated models)
   - Changed to exact stdout capture for reports
 
 - **2025-11-09:** Initial version
@@ -345,6 +359,6 @@ vllm-your-model:
 
 ---
 
-**Last Updated:** 2025-11-09
-**Tool Version:** 2.0
+**Last Updated:** 2026-02-26
+**Tool Version:** 2.1
 **Maintainer:** Stravica

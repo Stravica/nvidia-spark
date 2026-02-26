@@ -125,35 +125,23 @@ curl http://localhost:8000/metrics
 
 ## Performance Testing
 
-Two automated CLI testing tools included:
+Automated CLI testing tool included:
 
-### 1. Model-vs-Model Comparison (vLLM)
+### Model-vs-Model Comparison (vLLM)
 
 ```bash
 # Test all vLLM models
 ./tools/perftest-models.js
 
-# Test specific models
+# Skip specific models
 ./tools/perftest-models.js --skip qwen3-32b-fp8
+./tools/perftest-models.js --skip qwen3-32b-fp8,llama33-70b-fp8
 
 # Custom iterations
 ./tools/perftest-models.js --iterations 5
 ```
 
 **Tests:** Single-request latency, long-context handling (1K/8K/16K/32K tokens)
-
-### 2. Provider Comparison (vLLM vs Ollama)
-
-```bash
-# Compare vLLM vs Ollama for Qwen3-32B
-./tools/perftest.js qwen3-32b-fp8
-
-# Test specific provider
-./tools/perftest.js qwen3-32b-fp8 vllm
-./tools/perftest.js qwen3-32b-fp8 ollama
-```
-
-**Tests:** Throughput comparison between inference providers
 
 ---
 
@@ -275,8 +263,7 @@ Simply open this repository in Claude Code to get intelligent assistance with mo
 ├── docker-compose.yml             # vLLM & Ollama service definitions
 ├── .env                           # Environment variables (create this)
 ├── tools/
-│   ├── perftest-models.js         # Model-vs-model comparison
-│   └── perftest.js                # vLLM vs Ollama comparison
+│   └── perftest-models.js         # Model-vs-model comparison
 ├── docs/
 │   ├── nvidia-spark.md               # Hardware specs & setup
 │   ├── vllm/                         # vLLM model configurations

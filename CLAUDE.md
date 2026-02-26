@@ -268,17 +268,12 @@ curl http://localhost:11434/api/chat \
 # Model-vs-model comparison (all vLLM models)
 ./tools/perftest-models.js
 
-# Test specific models only
+# Skip specific models
 ./tools/perftest-models.js --skip qwen3-32b-fp8
-./tools/perftest-models.js --skip llama33-70b-fp8
+./tools/perftest-models.js --skip qwen3-32b-fp8,llama33-70b-fp8
 
 # Custom iterations
 ./tools/perftest-models.js --iterations 5
-
-# Provider comparison (Ollama vs vLLM for Qwen3-32B)
-./tools/perftest.js qwen3-32b-fp8
-./tools/perftest.js qwen3-32b-fp8 ollama    # Ollama only
-./tools/perftest.js qwen3-32b-fp8 vllm      # vLLM only
 ```
 
 ---
@@ -577,8 +572,7 @@ For maximum performance on DGX Spark:
 │   └── ollama/
 │       └── qwen3-32b-fp8.md          # Ollama configuration
 ├── tools/
-│   ├── perftest-models.js        # Model-vs-model comparison
-│   └── perftest.js               # Provider comparison (Ollama vs vLLM)
+│   └── perftest-models.js        # Model-vs-model comparison
 └── models/
     └── ollama/
         └── Modelfile-qwen3-32b-fp8  # Ollama model config
@@ -676,7 +670,6 @@ df -h /opt
 ### Performance Testing
 
 - **tools/perftest-models.js** - Model-vs-model comparison (vLLM models)
-- **tools/perftest.js** - Provider comparison (Ollama vs vLLM)
 
 ### External Resources
 
