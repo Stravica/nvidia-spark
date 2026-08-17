@@ -335,6 +335,64 @@ services:
               count: all
               capabilities: [gpu]
 
+  # Qwen3.8-27B dense, NVFP4 pre-quantized.
+  # Image is the vLLM DGX Spark recipe build (sm_121-native, v0.24.0-ubuntu2404).
+  # Uses MTP speculative decoding (num_speculative_tokens=3) for ~2x single-stream
+  # decode on this model. See docs/vllm/qwen38-27b-nvfp4.md for the full rationale
+  # behind every flag, image pinning, checkpoint choice, and measured benchmarks.
+  # Only one :8000 binding runs at a time.
+  vllm-qwen38-27b-nvfp4:
+    image: vllm/vllm-openai:v0.24.0-ubuntu2404
+    container_name: vllm-qwen38-27b-nvfp4
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      HF_TOKEN: "${HF_TOKEN}"
+      HUGGING_FACE_HUB_TOKEN: "${HF_TOKEN}"
+    ipc: host
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    command:
+      - unsloth/Qwen3.8-27B-NVFP4
+      - --served-model-name
+      - qwen38-27b-nvfp4
+      - --download-dir
+      - /root/.cache/huggingface
+      - --max-model-len
+      - "131072"
+      - --gpu-memory-utilization
+      - "0.60"
+      - --max-num-seqs
+      - "8"
+      - --max-num-batched-tokens
+      - "8192"
+      - --enable-chunked-prefill
+      - --async-scheduling
+      - --enable-prefix-caching
+      - --speculative-config
+      - '{"method": "qwen3_5_mtp", "num_speculative_tokens": 3}'
+      - --load-format
+      - fastsafetensors
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_xml
+      - --reasoning-parser
+      - qwen3
+      - --trust-remote-code
+      - --limit-mm-per-prompt
+      - '{"image": 0, "video": 0}'
+    volumes:
+      - /opt/hf:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
 volumes:
   qwen35-pip-cache:
 
