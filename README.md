@@ -25,7 +25,8 @@ docker compose up -d vllm-qwen3-8b-fp8        # ⚡ Fastest: ~10 tok/s
 docker compose up -d vllm-llama31-8b-fp8      # NVIDIA-optimized: ~10 tok/s
 docker compose up -d vllm-mistral-nemo-12b-fp8 # Long-context (65K): ~9 tok/s
 
-# Quality Priority (30B-70B models):
+# Quality Priority (27B-70B models):
+docker compose up -d vllm-qwen38-27b-nvfp4     # Dense 27B reasoning, NVFP4 + MTP: ~28 tok/s code
 docker compose up -d vllm-qwen35-35b-a3b-fp8   # ⚡ Fastest single-req: ~48 tok/s
 docker compose up -d vllm-qwen3-30b-a3b-fp8   # MoE efficient: ~42 tok/s
 docker compose up -d vllm-qwen3-32b-fp8        # Dense baseline: ~7 tok/s
@@ -55,6 +56,7 @@ Run one vLLM model at a time - all share port 8000:
 | `vllm-qwen3-32b-fp8` | Qwen3-32B-FP8 | Dense 32B | 32K | Balanced (~7 tok/s) |
 | `vllm-qwen3-30b-a3b-fp8` | Qwen3-30B-A3B-FP8 | MoE (3B active) | 32K | Efficient MoE (~42 tok/s) |
 | `vllm-qwen35-35b-a3b-fp8` | Qwen3.5-35B-A3B-FP8 | DeltaNet MoE (3B active) | 32K | **Fastest + Reasoning** (~48 tok/s) |
+| `vllm-qwen38-27b-nvfp4` | Qwen3.8-27B-NVFP4 | Dense 27B reasoning | **128K** | **Reasoning + tool-calls + MTP** (~28 tok/s code, ~20 prose) |
 | `vllm-llama33-70b-fp8` | Llama 3.3 70B-FP8 | Dense 70B | **65K** | **Max Quality** (~6 tok/s) |
 
 ### Ollama Model (Port 11434)
@@ -79,7 +81,7 @@ docker compose logs -f <service-name>
 docker compose stop <service-name>
 
 # Stop all vLLM services
-docker compose stop vllm-qwen3-8b-fp8 vllm-llama31-8b-fp8 vllm-mistral-nemo-12b-fp8 vllm-qwen3-32b-fp8 vllm-qwen3-30b-a3b-fp8 vllm-qwen35-35b-a3b-fp8 vllm-llama33-70b-fp8
+docker compose stop vllm-qwen3-8b-fp8 vllm-llama31-8b-fp8 vllm-mistral-nemo-12b-fp8 vllm-qwen3-32b-fp8 vllm-qwen3-30b-a3b-fp8 vllm-qwen35-35b-a3b-fp8 vllm-qwen38-27b-nvfp4 vllm-llama33-70b-fp8
 
 # GPU status
 nvidia-smi
@@ -106,6 +108,9 @@ curl http://localhost:8000/metrics
 **Fastest Single-Request + Reasoning:**
 - **Qwen3.5-35B-A3B-FP8** - Hybrid DeltaNet MoE, ~48 tok/s, built-in thinking/reasoning, tool calling
 
+**Dense Reasoning with Tool Calling + Long Context:**
+- **Qwen3.8-27B-NVFP4** - Dense 27B, NVFP4 pre-quantized, MTP speculative decoding, native XML tool-calls, 128K context. Sits in the vLLM Recipes DGX Spark reference band.
+
 **Balanced Performance:**
 - **Qwen3-30B-A3B-FP8** - MoE architecture, efficient memory usage, ~42 tok/s
 - **Qwen3-32B-FP8** - Dense baseline, proven performance
@@ -124,6 +129,7 @@ curl http://localhost:8000/metrics
 | Mistral-NeMo-12B | ~12 GB | ~75-80 GB | ~87-92 GB |
 | Qwen3-30B-A3B | ~30 GB | ~55-70 GB | ~85-100 GB |
 | Qwen3.5-35B-A3B | ~37.5 GB | ~55-70 GB | ~90-108 GB |
+| Qwen3.8-27B-NVFP4 | ~21 GB (NVFP4) | ~22 GB (bf16 KV) | ~45 GB @ util 0.60 |
 | Qwen3-32B | ~32 GB | ~66 GB | ~98 GB |
 | Llama 3.3 70B | ~35 GB | ~40-60 GB | ~75-95 GB |
 
@@ -179,6 +185,31 @@ Automated CLI testing tool included:
 
 ---
 
+### Qwen3.8-27B-NVFP4 with MTP speculative decoding
+
+**Hardware:** DGX Spark GB10 (128GB unified memory) | **Image:** `vllm/vllm-openai:v0.24.0-ubuntu2404` | **Config:** MTP `num_speculative_tokens=3`, `--gpu-memory-utilization 0.60`, `--max-model-len 131072`, KV cache bf16
+
+**Single-Request Decode (256-token completions, temperature=0.1)**
+
+| Content type | Tokens/sec | TTFT (ms) |
+|---|---:|---:|
+| **math** | **26.07** | 273 |
+| **code** | **28.38** | 273 |
+| **prose** | **20.36** | 273 |
+
+**Concurrent Aggregate (prose prompt)**
+
+| Concurrency | Aggregate tokens/sec |
+|---:|---:|
+| c=4 | 62.29 |
+| **c=8** | **129.16** |
+
+**Uplift vs same service with MTP off + kv-fp8 baseline:** +75% prose, +144% code, +124% math on single-stream; +56% at c=8. TTFT roughly doubles because MTP runs the target model plus one draft step before the first token.
+
+Sits at or above the vLLM Recipes DGX Spark NVFP4 published headline (~24.5 tok/s prose-weighted) on code and math; prose is slightly below because prose has lower spec-decoding acceptance than structured content. Full rationale, tuning table, and lever verdicts in `docs/vllm/qwen38-27b-nvfp4.md`.
+
+---
+
 ### Dense & MoE Models (30B-70B)
 
 **Test Date:** 2025-11-09 | **Hardware:** DGX Spark GB10 (128GB unified memory)
@@ -218,6 +249,7 @@ Automated CLI testing tool included:
 - **[Qwen3-32B-FP8](docs/vllm/qwen3-32b-fp8.md)** - Dense baseline
 - **[Qwen3-30B-A3B-FP8](docs/vllm/qwen3-30b-a3b-fp8.md)** - MoE model
 - **[Qwen3.5-35B-A3B-FP8](docs/vllm/qwen35-35b-a3b-fp8.md)** - Hybrid DeltaNet MoE (fastest + reasoning)
+- **[Qwen3.8-27B-NVFP4](docs/vllm/qwen38-27b-nvfp4.md)** - Dense 27B reasoning, NVFP4 + MTP, native XML tool-calls, 128K
 - **[Llama 3.3 70B-FP8](docs/vllm/llama33-70b-fp8.md)** - Maximum quality
 - **[Ollama Qwen3-32B](docs/ollama/qwen3-32b-fp8.md)** - Provider comparison
 
@@ -280,6 +312,7 @@ Simply open this repository in Claude Code to get intelligent assistance with mo
 │   │   ├── qwen3-32b-fp8.md          # 32B baseline
 │   │   ├── qwen3-30b-a3b-fp8.md      # 30B MoE
 │   │   ├── qwen35-35b-a3b-fp8.md     # 35B DeltaNet MoE (fastest)
+│   │   ├── qwen38-27b-nvfp4.md       # 27B dense reasoning (NVFP4 + MTP)
 │   │   └── llama33-70b-fp8.md        # 70B max quality
 │   ├── ollama/                       # Ollama configurations
 │   │   └── qwen3-32b-fp8.md          # Provider comparison
