@@ -4,8 +4,6 @@
 
 ### NVIDIA DGX Spark - GB10 Grace Blackwell Superchip
 
-**Hostname:** spark.thefootonline.local
-
 #### Processor
 - **CPU:** 20-core Arm (10 Cortex-X925 + 10 Cortex-A725)
 - **GPU:** NVIDIA Blackwell Architecture
