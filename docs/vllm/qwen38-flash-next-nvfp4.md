@@ -24,7 +24,9 @@ The recipe is a community adaptation of the vLLM `release/qwen38next` branch (PR
 
 ## Image choice
 
-The service uses a locally-built image `qwen38-flash-dgx:latest`, which is `vllm/vllm-openai:qwen38-flash-next@sha256:fc120ece0a388cc0aa1caad4a9f1cd92113484ab7ec2fd0efadd62585be05bf8` with one Python patch applied on top. The base image tag is not floating; the sha256 pin makes rebuilds reproducible.
+The service uses a locally-built image `qwen38-flash-dgx:2026-08-27`, which is `vllm/vllm-openai:qwen38-flash-next@sha256:fc120ece0a388cc0aa1caad4a9f1cd92113484ab7ec2fd0efadd62585be05bf8` with one Python patch applied on top. The base image tag is not floating; the sha256 pin makes rebuilds reproducible.
+
+The compose service references the dated tag rather than `:latest` so a future rebuild cannot silently swap what the running service resolves to. Bump both the tag on disk and the compose reference in the same commit when the recipe advances.
 
 The patch (`src/vllm_ple_mmap.py` from the recipe repo) hooks the `Qwen3_8FlashNextNGramEmbedding` class. It is a no-op unless `VLLM_PLE_MMAP=1` is set at runtime, so the image behaves identically to upstream when the flag is off.
 
@@ -35,7 +37,7 @@ sudo mkdir -p /usr/local/apps/vllm-flash-next && sudo chown "$USER:$USER" /usr/l
 cd /usr/local/apps/vllm-flash-next
 git clone https://github.com/blazux/qwen3.8-Flash-DGX.git
 cd qwen3.8-Flash-DGX
-docker build -t qwen38-flash-dgx .
+docker build -t qwen38-flash-dgx:2026-08-27 -t qwen38-flash-dgx:latest .
 ```
 
 The base image is multi-arch and the build works on arm64 (Spark) and x86 Blackwell.
@@ -45,6 +47,8 @@ The base image is multi-arch and the build works on arm64 (Spark) and x86 Blackw
 ## Checkpoint choice
 
 `RadixArk/Qwen3.8-Flash-Next-NVFP4` is the vLLM team's referenced NVFP4 requant. About 122 GiB on disk across multiple safetensors shards including the 44 GiB `model-plefp8-*.safetensors` PLE shards (mmapped) and the main weight shards (resident). One-time download (~130 GiB required free on the mount):
+
+> **The compose service passes a local snapshot path, not the HF repo id.** The community PLE mmap patch resolves the n-gram (PLE) shards through the filesystem: passing the repo id (`RadixArk/Qwen3.8-Flash-Next-NVFP4`) makes weight loading run to about 93% and then die with `RuntimeError: PLE mmap: model path '...' is not a local directory; point --model at the downloaded snapshot` from `src/vllm_ple_mmap.py::_setup_table`. The recipe's own `scripts/serve.sh` resolves the snapshot dir into `SNAP_HOST` / `SNAP_IN` before it invokes `docker run`. In compose, the equivalent is to hardcode the in-container snapshot path (`/root/.cache/huggingface/hub/models--RadixArk--Qwen3.8-Flash-Next-NVFP4/snapshots/<hash>`) as the model positional arg and bump the hash in-place whenever the checkpoint is re-downloaded to a new one. `HF_HUB_OFFLINE=1` is set on the service so vLLM cannot try to reach the hub for a re-resolve.
 
 ```bash
 docker run --rm --name qwen38-flash-dl \
@@ -136,13 +140,14 @@ The recipe treats this as a large-model prototype-serving profile: two concurren
 
 ## Performance
 
-Measured on the estate's Spark (GB10, 128 GB, arm64), single request, ctx 32K, MTP=2:
+Measured on the estate's Spark (GB10, 128 GB, arm64), single request, ctx 32K, MTP=2, verified 2026-08-27:
 
-- **Prefill:** ~2,400-2,660 tok/s (recipe reference on an ASUS GX10; measurement on our unit pending first serve).
-- **Decode without MTP:** ~17 tok/s.
-- **Decode with MTP=2:** ~27 tok/s (about 67% acceptance).
-- **Resident memory:** ~76 GiB weights + KV cache within the 0.78 utilisation budget.
-- **Load time:** first boot ~8 min (weights stream from `/opt/hf`).
+- **Prefill:** 1,725 tok/s on an 8,001-token prompt (recipe reference on ASUS GX10 is ~2,400-2,660 tok/s; our Spark unit runs about 65-72% of that on this synthetic prompt).
+- **Decode (MTP=2):** 28.5 tok/s over a 256-token completion (recipe reference ~27 tok/s at ~67% MTP acceptance; matches).
+- **Decode (MTP off):** not re-measured on our unit; recipe reference ~17 tok/s. To measure locally, override the `--speculative-config` in the compose command and recreate the service (adds ~15 min for a full reload).
+- **Coherence:** correct (`17 * 23` returns `391.` in the visible completion; the reasoning parser leaves `reasoning_content: null` on plain-arithmetic prompts).
+- **Load time:** about 15 min from `docker compose up` to `Application startup complete` on a warm HF cache — weight-shard loading is roughly 10 min at 2.7 s/shard for 206 shards, CUDA graph capture and startup add about 5 min.
+- **Memory footprint at rest:** 102 GB of the 128 GB pool in use, 16 GB available. Container user-space RSS is only 5.5 GiB; the balance is kernel page cache backing the mmapped PLE shards plus vLLM's own resident weights and KV cache. Headroom above the 0.78 utilisation budget is real but not generous — this is close to what the box can serve without freeze risk, and dial back before raising `--max-model-len` or running anything else.
 
 Compared to the only prior working single-box option (llama.cpp GGUF IQ4_XS), this recipe is roughly 5x faster on prefill and adds MTP support. Dense reasoning quality is Flash-Next's headline; expect single-stream decode below the estate's 30B-A3B MoE options because the 6B active path plus the on-demand PLE gather cannot beat a hot in-memory MoE on this bandwidth-bound hardware.
 
@@ -163,6 +168,8 @@ If measured tok/s falls substantially below these targets, first suspect: prefix
 **Container refuses to start with "image not found" for `qwen38-flash-dgx:latest`.** The image is built locally, not pulled. Run the build step above on the Spark host before compose-up.
 
 **Load stalls partway through weight ingest.** The PLE mmap patch requires the PLE shards to be present on disk. Confirm with `du -sh /opt/hf/hub/models--RadixArk--Qwen3.8-Flash-Next-NVFP4` around 122 GiB. If the download aborted, re-run `hf download` (resumable).
+
+**EngineCore dies at ~93% with `PLE mmap: model path '...' is not a local directory`.** The compose service's model positional arg is the HF repo id instead of the local snapshot path. See the checkpoint-choice section above. Fix by editing the compose command to point at the current snapshot directory.
 
 **Nonsense output.** The GDN prefix-caching bug corrupts silently. Verify the compose `command:` still contains `--no-enable-prefix-caching`.
 

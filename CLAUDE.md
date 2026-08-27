@@ -146,11 +146,11 @@ High-performance inference with OpenAI-compatible API. MoE preview of the Qwen4 
 
 **Configuration:**
 - **Model:** `RadixArk/Qwen3.8-Flash-Next-NVFP4` (~122 GiB on disk)
-- **Image:** `qwen38-flash-dgx:latest` (locally built: `vllm/vllm-openai:qwen38-flash-next` base + PLE mmap patch)
+- **Image:** `qwen38-flash-dgx:2026-08-27` (locally built: `vllm/vllm-openai:qwen38-flash-next` base + PLE mmap patch; dated tag so future rebuilds cannot silently swap what the compose service resolves to)
 - **Memory:** ~76 GB resident weights + KV cache at `--gpu-memory-utilization 0.78` (rest of 128 GB pool reserved for OS)
 - **Context:** 32,768 tokens configured (262K native, 1M with YaRN)
 - **Concurrency:** 2 concurrent requests
-- **Performance:** ~2,400-2,660 tok/s prefill; ~17 tok/s decode without MTP, ~27 tok/s with MTP=2
+- **Performance:** 1,725 tok/s prefill (8K prompt, measured); 28.5 tok/s decode with MTP=2 (measured, matches ~27 tok/s recipe reference); ~17 tok/s baseline decode without MTP (recipe reference, not re-measured locally)
 - **Features:** MTP speculative decoding (`num_speculative_tokens=2`), tool-call parser (`qwen3_coder`), reasoning parser (`qwen3`)
 - **Best For:** Large-model dense reasoning quality on one Spark; long-context prototyping
 
@@ -513,15 +513,15 @@ Detailed configuration guides for deployed models:
 | **Total Memory** | ~88-93 GB | ~88-93 GB | ~87-92 GB | ~98 GB | ~85-100 GB | ~90-108 GB | ~45 GB @ util 0.60 | ~100 GB @ util 0.78 (headroom for OS) | ~75-95 GB |
 | **Context Length** | 32K | 32K (128K native) | 65K (128K native) | 32K | 32K | 32K (262K native) | 131K | 32K (262K native, 1M w/ YaRN) | 65K (128K) |
 | **Max Concurrency** | 64+ | 64+ | 64 | 64 | 64 | 64 | 8 | 2 | 32 |
-| **Single Request TPS** | ~21 | ~24 | ~8-9 | ~6 | ~42 | ~48 | ~20 prose / ~28 code | ~17 no MTP / ~27 MTP=2 | ~5-7 |
-| **Batched TPS** | ~450-500 | ~450-500 | ~400-450 | ~300-400 | ~200-350 | ~200-400 | ~129 at c=8 | prefill ~2,400-2,660 | ~80-150 |
+| **Single Request TPS** | ~21 | ~24 | ~8-9 | ~6 | ~42 | ~48 | ~20 prose / ~28 code | 28.5 MTP=2 (measured) | ~5-7 |
+| **Batched TPS** | ~450-500 | ~450-500 | ~400-450 | ~300-400 | ~200-350 | ~200-400 | ~129 at c=8 | prefill 1,725 (measured, 8K prompt) | ~80-150 |
 | **Best For** | Batched throughput | NVIDIA-optimized | Long-context | Dense quality | Efficiency | Fastest + reasoning | Reasoning + tools + 128K | Large-model MoE reasoning on one Spark | Max quality |
 
 **Model Selection Guide:**
 - **Qwen3.5-35B-A3B-FP8:** Choose for fastest single-request (~48 tok/s), thinking/reasoning, tool calling, long-context potential
 - **Qwen3-30B-A3B-FP8:** Choose for fast single-request (~42 tok/s), MoE efficiency, mixed workloads
 - **Qwen3.8-27B-NVFP4:** Choose for dense reasoning with native XML tool calls, 128K context, and MTP-accelerated decode (~28 tok/s code / ~20 prose single-stream)
-- **Qwen3.8-Flash-Next-NVFP4:** Choose for large-model MoE reasoning quality on one Spark (125B/6B active), Qwen4 architecture preview, or when 176B-class capacity is required; expect ~17 tok/s decode (~27 with MTP=2), ~2,400-2,660 tok/s prefill
+- **Qwen3.8-Flash-Next-NVFP4:** Choose for large-model MoE reasoning quality on one Spark (125B/6B active), Qwen4 architecture preview, or when 176B-class capacity is required; measured 28.5 tok/s decode with MTP=2 and 1,725 tok/s prefill on an 8K prompt (recipe reference ~17 tok/s baseline decode without MTP; not re-measured locally)
 - **Llama-3.1-8B-FP8:** Choose for NVIDIA-optimized performance (~24 tok/s), instruction following, proven Meta architecture
 - **Qwen3-8B-FP8:** Choose for high batched throughput (~21 tok/s single), smallest memory footprint
 - **Mistral-NeMo-12B-FP8:** Choose for long-context tasks (65K), document analysis, balanced quality/speed
@@ -596,14 +596,18 @@ Detailed configuration guides for deployed models:
 
 ### vLLM: Qwen3.8-Flash-Next-NVFP4 (MoE 125B/6B-active preview of Qwen4)
 
-- **Prefill:** ~2,400-2,660 tokens/sec (recipe reference; measurement on our unit pending first serve)
-- **Decode (no MTP):** ~17 tokens/sec
-- **Decode (MTP=2):** ~27 tokens/sec (~67% acceptance)
+Measured on the estate's Spark 2026-08-27, single request, ctx 32K, MTP=2:
+
+- **Prefill:** 1,725 tokens/sec on an 8,001-token prompt (recipe reference on ASUS GX10 is ~2,400-2,660 tok/s; our unit runs about 65-72% of that on this synthetic prompt)
+- **Decode (MTP=2):** 28.5 tokens/sec over a 256-token completion (recipe reference ~27 tok/s at ~67% MTP acceptance; matches)
+- **Decode (no MTP):** recipe reference ~17 tokens/sec; not re-measured locally (would require another full reload)
+- **Coherence:** correct (`17 * 23` returns `391.`)
 - **Context:** 32,768 tokens configured (262K native, 1M with YaRN)
 - **Concurrency:** 2 (`--max-num-seqs 2`)
-- **Memory:** ~76 GB resident weights + KV within 0.78 utilisation of the 128 GB pool; the 44 GB n-gram (PLE) table is served via `mmap` from NVMe rather than resident
-- **Load time:** ~8 min first boot (weights stream from `/opt/hf`)
-- **GB10 workarounds:** `--no-enable-prefix-caching` (GDN kernel corruption bug) and `-cc.cudagraph_mode=PIECEWISE` with the full `-cc.splitting_ops=[...]` list (Inductor int64-indexing assert on sm_121)
+- **Memory footprint at rest:** 102 GB of the 128 GB pool in use, 16 GB available; container user-space RSS about 5.5 GiB with the rest as kernel page cache backing the mmapped 44 GB PLE shards, resident weights, and KV cache
+- **Load time:** about 15 min from `docker compose up` to `Application startup complete` on a warm HF cache (~10 min weight-shard loading at 2.7 s/shard for 206 shards, plus about 5 min for CUDA graph capture and startup)
+- **GB10 workarounds:** `--no-enable-prefix-caching` (GDN kernel silent-corruption bug on the cached-block path) and `-cc.cudagraph_mode=PIECEWISE` with the full `-cc.splitting_ops=[...]` list (Inductor int64-indexing assert under full `torch.compile` on sm_121)
+- **Recipe caveat:** compose service passes a local snapshot path (not the HF repo id) because the community PLE mmap patch resolves the n-gram shards by filesystem; passing the repo id crash-loops at ~93% shard progress
 
 ### vLLM: Llama 3.3 70B-FP8 (Dense 70B, Long-Context)
 
