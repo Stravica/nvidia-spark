@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **Purpose:** Multi-provider GPU inference platform for NVIDIA DGX Spark (GB10 Grace Blackwell)
 
 **Current Focus:** Multiple LLM model deployments using vLLM and Ollama providers
-- vLLM: Qwen3-8B-FP8, Llama-3.1-8B-FP8, Mistral-NeMo-12B-FP8, Qwen3-32B-FP8, Qwen3-30B-A3B-FP8, Qwen3.5-35B-A3B-FP8, Qwen3.8-27B-NVFP4, Llama 3.3 70B-FP8
+- vLLM: Qwen3-8B-FP8, Llama-3.1-8B-FP8, Mistral-NeMo-12B-FP8, Qwen3-32B-FP8, Qwen3-30B-A3B-FP8, Qwen3.5-35B-A3B-FP8, Qwen3.8-27B-NVFP4, Qwen3.8-Flash-Next-NVFP4, Llama 3.3 70B-FP8
 - Ollama: Qwen3-32B-FP8
 
 **Hardware:** NVIDIA DGX Spark with 128GB unified memory, 273 GB/s bandwidth
@@ -140,7 +140,23 @@ High-performance inference with OpenAI-compatible API. Dense 27B reasoning model
 
 **Documentation:** `docs/vllm/qwen38-27b-nvfp4.md`
 
-#### 8. vLLM: Llama 3.3 70B-FP8
+#### 8. vLLM: Qwen3.8-Flash-Next-NVFP4
+
+High-performance inference with OpenAI-compatible API. MoE preview of the Qwen4 architecture (125B main + 51B n-gram embedding table, 6B active per token) with NVFP4 quantization. The 44 GiB n-gram table is served from NVMe via `mmap` so weights fit alongside a real KV cache in the 128 GB unified pool.
+
+**Configuration:**
+- **Model:** `RadixArk/Qwen3.8-Flash-Next-NVFP4` (~122 GiB on disk)
+- **Image:** `qwen38-flash-dgx:latest` (locally built: `vllm/vllm-openai:qwen38-flash-next` base + PLE mmap patch)
+- **Memory:** ~76 GB resident weights + KV cache at `--gpu-memory-utilization 0.78` (rest of 128 GB pool reserved for OS)
+- **Context:** 32,768 tokens configured (262K native, 1M with YaRN)
+- **Concurrency:** 2 concurrent requests
+- **Performance:** ~2,400-2,660 tok/s prefill; ~17 tok/s decode without MTP, ~27 tok/s with MTP=2
+- **Features:** MTP speculative decoding (`num_speculative_tokens=2`), tool-call parser (`qwen3_coder`), reasoning parser (`qwen3`)
+- **Best For:** Large-model dense reasoning quality on one Spark; long-context prototyping
+
+**Documentation:** `docs/vllm/qwen38-flash-next-nvfp4.md`
+
+#### 9. vLLM: Llama 3.3 70B-FP8
 
 High-performance inference with OpenAI-compatible API. Dense 70B model (highest quality).
 
@@ -156,7 +172,7 @@ High-performance inference with OpenAI-compatible API. Dense 70B model (highest 
 
 ### Ollama Models (Port 11434)
 
-#### 9. Ollama: Qwen3-32B-FP8
+#### 10. Ollama: Qwen3-32B-FP8
 
 Simple inference with native Ollama API.
 
@@ -185,6 +201,7 @@ docker compose up -d vllm-qwen3-32b-fp8            # Dense 32B (baseline)
 docker compose up -d vllm-qwen3-30b-a3b-fp8        # MoE 30B (efficient)
 docker compose up -d vllm-qwen35-35b-a3b-fp8       # Hybrid DeltaNet MoE 35B (Qwen3.5)
 docker compose up -d vllm-qwen38-27b-nvfp4         # Dense 27B reasoning, NVFP4 + MTP (Qwen3.8)
+docker compose up -d vllm-qwen38-flash-next-nvfp4  # MoE 125B/6B-active preview of Qwen4, NVFP4 + PLE mmap (Qwen3.8-Flash-Next)
 docker compose up -d vllm-llama33-70b-fp8          # Dense 70B (high quality)
 
 # Start Ollama service
@@ -197,7 +214,7 @@ docker compose logs -f <service-name>
 docker compose stop <service-name>
 
 # Stop all vLLM services
-docker compose stop vllm-qwen3-8b-fp8 vllm-llama31-8b-fp8 vllm-mistral-nemo-12b-fp8 vllm-qwen3-32b-fp8 vllm-qwen3-30b-a3b-fp8 vllm-qwen35-35b-a3b-fp8 vllm-qwen38-27b-nvfp4 vllm-llama33-70b-fp8
+docker compose stop vllm-qwen3-8b-fp8 vllm-llama31-8b-fp8 vllm-mistral-nemo-12b-fp8 vllm-qwen3-32b-fp8 vllm-qwen3-30b-a3b-fp8 vllm-qwen35-35b-a3b-fp8 vllm-qwen38-27b-nvfp4 vllm-qwen38-flash-next-nvfp4 vllm-llama33-70b-fp8
 
 # Restart
 docker compose restart <service-name>
@@ -220,6 +237,7 @@ docker exec vllm-qwen3-32b-fp8 nvidia-smi
 docker exec vllm-qwen3-30b-a3b-fp8 nvidia-smi
 docker exec vllm-qwen35-35b-a3b-fp8 nvidia-smi
 docker exec vllm-qwen38-27b-nvfp4 nvidia-smi
+docker exec vllm-qwen38-flash-next-nvfp4 nvidia-smi
 docker exec vllm-llama33-70b-fp8 nvidia-smi
 
 # GPU status (Ollama container)
@@ -274,6 +292,11 @@ curl -X POST http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model": "qwen38-27b-nvfp4", "messages": [{"role": "user", "content": "Hello!"}]}'
 
+# Qwen3.8-Flash-Next-NVFP4
+curl -X POST http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model": "qwen38-flash-next", "messages": [{"role": "user", "content": "Hello!"}]}'
+
 # Llama 3.3 70B-FP8
 curl -X POST http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
@@ -312,6 +335,7 @@ All services follow: `{provider}-{model}-{quantization}`
 - `vllm-qwen3-30b-a3b-fp8` - vLLM with Qwen3-30B-A3B FP8
 - `vllm-qwen35-35b-a3b-fp8` - vLLM with Qwen3.5-35B-A3B FP8
 - `vllm-qwen38-27b-nvfp4` - vLLM with Qwen3.8-27B NVFP4 (dense reasoning + MTP)
+- `vllm-qwen38-flash-next-nvfp4` - vLLM with Qwen3.8-Flash-Next NVFP4 (MoE 125B/6B-active + PLE mmap)
 - `vllm-llama33-70b-fp8` - vLLM with Llama 3.3 70B FP8
 - `ollama-qwen3-32b-fp8` - Ollama with Qwen3-32B Q8_0
 
@@ -416,6 +440,15 @@ Detailed configuration guides for deployed models:
   - Full benchmark set (batch-1 by content type, c=4 / c=8 aggregate)
   - Troubleshooting
 
+- **vLLM Qwen3.8-Flash-Next-NVFP4:** `docs/vllm/qwen38-flash-next-nvfp4.md`
+  - MoE preview of Qwen4 (125B main + 51B n-gram, 6B active)
+  - PLE mmap patch on top of the official vLLM Flash-Next image (build steps)
+  - Mandatory GB10 workarounds (prefix caching off; PIECEWISE cudagraphs + splitting-ops list)
+  - MTP=2 speculative decoding default and its caveats
+  - Unified-memory sizing at util 0.78
+  - Recipe benchmarks (prefill ~2.4-2.7K tok/s, decode ~17/~27 tok/s off/on MTP)
+  - Troubleshooting including the silent-corruption prefix-caching regression
+
 - **vLLM Llama 3.3 70B-FP8:** `docs/vllm/llama33-70b-fp8.md`
   - Dense 70B model (highest quality)
   - What is Llama 3.3 and good use cases
@@ -472,22 +505,23 @@ Detailed configuration guides for deployed models:
 
 ## Model Comparison (vLLM)
 
-| Feature | Qwen3-8B | Llama-3.1-8B | Mistral-NeMo-12B | Qwen3-32B | Qwen3-30B-A3B | Qwen3.5-35B-A3B | Qwen3.8-27B-NVFP4 | Llama-3.3-70B |
-|---------|----------|--------------|------------------|-----------|---------------|-----------------|-------------------|---------------|
-| **Architecture** | Dense 8B | Dense 8B | Dense 12B | Dense 32B | MoE 30B (3B) | DeltaNet MoE 35B (3B) | Dense 27B (NVFP4 + MTP) | Dense 70B |
-| **Model Memory** | ~8 GB | ~8 GB | ~12 GB | ~32 GB | ~30 GB | ~37.5 GB | ~21 GB | ~35 GB |
-| **KV Cache** | ~80-85 GB | ~80-85 GB | ~75-80 GB | ~66 GB | ~55-70 GB | ~55-70 GB | ~22 GB (bf16) | ~40-60 GB |
-| **Total Memory** | ~88-93 GB | ~88-93 GB | ~87-92 GB | ~98 GB | ~85-100 GB | ~90-108 GB | ~45 GB @ util 0.60 | ~75-95 GB |
-| **Context Length** | 32K | 32K (128K native) | 65K (128K native) | 32K | 32K | 32K (262K native) | 131K | 65K (128K) |
-| **Max Concurrency** | 64+ | 64+ | 64 | 64 | 64 | 64 | 8 | 32 |
-| **Single Request TPS** | ~21 | ~24 | ~8-9 | ~6 | ~42 | ~48 | ~20 prose / ~28 code | ~5-7 |
-| **Batched TPS** | ~450-500 | ~450-500 | ~400-450 | ~300-400 | ~200-350 | ~200-400 | ~129 at c=8 | ~80-150 |
-| **Best For** | Batched throughput | NVIDIA-optimized | Long-context | Dense quality | Efficiency | Fastest + reasoning | Reasoning + tools + 128K | Max quality |
+| Feature | Qwen3-8B | Llama-3.1-8B | Mistral-NeMo-12B | Qwen3-32B | Qwen3-30B-A3B | Qwen3.5-35B-A3B | Qwen3.8-27B-NVFP4 | Qwen3.8-Flash-Next | Llama-3.3-70B |
+|---------|----------|--------------|------------------|-----------|---------------|-----------------|-------------------|--------------------|---------------|
+| **Architecture** | Dense 8B | Dense 8B | Dense 12B | Dense 32B | MoE 30B (3B) | DeltaNet MoE 35B (3B) | Dense 27B (NVFP4 + MTP) | MoE 125B + 51B n-gram (6B active) + PLE mmap | Dense 70B |
+| **Model Memory** | ~8 GB | ~8 GB | ~12 GB | ~32 GB | ~30 GB | ~37.5 GB | ~21 GB | ~76 GB resident (44 GB PLE mmapped from NVMe) | ~35 GB |
+| **KV Cache** | ~80-85 GB | ~80-85 GB | ~75-80 GB | ~66 GB | ~55-70 GB | ~55-70 GB | ~22 GB (bf16) | balance of 128 GB pool at util 0.78 | ~40-60 GB |
+| **Total Memory** | ~88-93 GB | ~88-93 GB | ~87-92 GB | ~98 GB | ~85-100 GB | ~90-108 GB | ~45 GB @ util 0.60 | ~100 GB @ util 0.78 (headroom for OS) | ~75-95 GB |
+| **Context Length** | 32K | 32K (128K native) | 65K (128K native) | 32K | 32K | 32K (262K native) | 131K | 32K (262K native, 1M w/ YaRN) | 65K (128K) |
+| **Max Concurrency** | 64+ | 64+ | 64 | 64 | 64 | 64 | 8 | 2 | 32 |
+| **Single Request TPS** | ~21 | ~24 | ~8-9 | ~6 | ~42 | ~48 | ~20 prose / ~28 code | ~17 no MTP / ~27 MTP=2 | ~5-7 |
+| **Batched TPS** | ~450-500 | ~450-500 | ~400-450 | ~300-400 | ~200-350 | ~200-400 | ~129 at c=8 | prefill ~2,400-2,660 | ~80-150 |
+| **Best For** | Batched throughput | NVIDIA-optimized | Long-context | Dense quality | Efficiency | Fastest + reasoning | Reasoning + tools + 128K | Large-model MoE reasoning on one Spark | Max quality |
 
 **Model Selection Guide:**
 - **Qwen3.5-35B-A3B-FP8:** Choose for fastest single-request (~48 tok/s), thinking/reasoning, tool calling, long-context potential
 - **Qwen3-30B-A3B-FP8:** Choose for fast single-request (~42 tok/s), MoE efficiency, mixed workloads
 - **Qwen3.8-27B-NVFP4:** Choose for dense reasoning with native XML tool calls, 128K context, and MTP-accelerated decode (~28 tok/s code / ~20 prose single-stream)
+- **Qwen3.8-Flash-Next-NVFP4:** Choose for large-model MoE reasoning quality on one Spark (125B/6B active), Qwen4 architecture preview, or when 176B-class capacity is required; expect ~17 tok/s decode (~27 with MTP=2), ~2,400-2,660 tok/s prefill
 - **Llama-3.1-8B-FP8:** Choose for NVIDIA-optimized performance (~24 tok/s), instruction following, proven Meta architecture
 - **Qwen3-8B-FP8:** Choose for high batched throughput (~21 tok/s single), smallest memory footprint
 - **Mistral-NeMo-12B-FP8:** Choose for long-context tasks (65K), document analysis, balanced quality/speed
@@ -560,6 +594,17 @@ Detailed configuration guides for deployed models:
 - **Reasoning:** `--reasoning-parser qwen3` matches the model's `<think>...</think>` framing
 - **Image pinning:** `vllm/vllm-openai:v0.24.0-ubuntu2404` (vLLM DGX Spark recipe build, sm_121-native); stock vLLM images crash at CUDA init on GB10 per [vllm#36821](https://github.com/vllm-project/vllm/issues/36821)
 
+### vLLM: Qwen3.8-Flash-Next-NVFP4 (MoE 125B/6B-active preview of Qwen4)
+
+- **Prefill:** ~2,400-2,660 tokens/sec (recipe reference; measurement on our unit pending first serve)
+- **Decode (no MTP):** ~17 tokens/sec
+- **Decode (MTP=2):** ~27 tokens/sec (~67% acceptance)
+- **Context:** 32,768 tokens configured (262K native, 1M with YaRN)
+- **Concurrency:** 2 (`--max-num-seqs 2`)
+- **Memory:** ~76 GB resident weights + KV within 0.78 utilisation of the 128 GB pool; the 44 GB n-gram (PLE) table is served via `mmap` from NVMe rather than resident
+- **Load time:** ~8 min first boot (weights stream from `/opt/hf`)
+- **GB10 workarounds:** `--no-enable-prefix-caching` (GDN kernel corruption bug) and `-cc.cudagraph_mode=PIECEWISE` with the full `-cc.splitting_ops=[...]` list (Inductor int64-indexing assert on sm_121)
+
 ### vLLM: Llama 3.3 70B-FP8 (Dense 70B, Long-Context)
 
 - **Single Request:** ~5-7 tokens/sec
@@ -615,6 +660,7 @@ For maximum performance on DGX Spark:
 │   │   ├── qwen3-30b-a3b-fp8.md      # vLLM Qwen3-30B-A3B configuration
 │   │   ├── qwen35-35b-a3b-fp8.md     # vLLM Qwen3.5-35B-A3B configuration
 │   │   ├── qwen38-27b-nvfp4.md       # vLLM Qwen3.8-27B NVFP4 configuration (dense reasoning + MTP)
+│   │   ├── qwen38-flash-next-nvfp4.md # vLLM Qwen3.8-Flash-Next NVFP4 (MoE 125B/6B-active + PLE mmap)
 │   │   └── llama33-70b-fp8.md        # vLLM Llama 3.3 70B configuration
 │   └── ollama/
 │       └── qwen3-32b-fp8.md          # Ollama configuration
@@ -626,7 +672,7 @@ For maximum performance on DGX Spark:
 ```
 
 **Storage Locations:**
-- `/opt/hf` - vLLM model cache (~8GB Qwen3-8B, ~8GB Llama-3.1-8B, ~12GB Mistral-NeMo-12B, ~32GB Qwen3-32B, ~30GB Qwen3-30B-A3B, ~37.5GB Qwen3.5-35B-A3B, ~21GB Qwen3.8-27B-NVFP4, ~35GB Llama 3.3 70B)
+- `/opt/hf` - vLLM model cache (~8GB Qwen3-8B, ~8GB Llama-3.1-8B, ~12GB Mistral-NeMo-12B, ~32GB Qwen3-32B, ~30GB Qwen3-30B-A3B, ~37.5GB Qwen3.5-35B-A3B, ~21GB Qwen3.8-27B-NVFP4, ~122GB Qwen3.8-Flash-Next-NVFP4, ~35GB Llama 3.3 70B)
 - `/opt/ollama` - Ollama model storage (~35-40GB)
 
 ---
@@ -692,7 +738,7 @@ df -h /opt
 - **Subsequent starts are faster** - Models cached locally at `/opt/hf` (vLLM) and `/opt/ollama` (Ollama)
 - **Memory bandwidth is the bottleneck** - Not compute capacity (273 GB/s limitation)
 - **Batching is essential** - Single-request performance is hardware-limited
-- **Model selection matters** - Choose Qwen3-8B/Llama-3.1-8B for speed, Mistral-NeMo-12B for long-context, Qwen3-30B-A3B/Qwen3.5-35B-A3B for efficiency, Qwen3.8-27B-NVFP4 for dense reasoning + tool calls + 128K context, Llama 3.3 70B for quality
+- **Model selection matters** - Choose Qwen3-8B/Llama-3.1-8B for speed, Mistral-NeMo-12B for long-context, Qwen3-30B-A3B/Qwen3.5-35B-A3B for efficiency, Qwen3.8-27B-NVFP4 for dense reasoning + tool calls + 128K context, Qwen3.8-Flash-Next-NVFP4 for large-model MoE reasoning quality on one Spark, Llama 3.3 70B for quality
 
 ---
 
@@ -712,6 +758,7 @@ df -h /opt
 - **docs/vllm/qwen3-30b-a3b-fp8.md** - vLLM Qwen3-30B-A3B-FP8 configuration and tuning
 - **docs/vllm/qwen35-35b-a3b-fp8.md** - vLLM Qwen3.5-35B-A3B-FP8 configuration and tuning
 - **docs/vllm/qwen38-27b-nvfp4.md** - vLLM Qwen3.8-27B-NVFP4 configuration and tuning (NVFP4 + MTP)
+- **docs/vllm/qwen38-flash-next-nvfp4.md** - vLLM Qwen3.8-Flash-Next-NVFP4 configuration and tuning (MoE 125B/6B active + PLE mmap)
 - **docs/vllm/llama33-70b-fp8.md** - vLLM Llama 3.3 70B-FP8 configuration and tuning
 - **docs/ollama/qwen3-32b-fp8.md** - Ollama Qwen3-32B-FP8 configuration and tuning
 
@@ -729,6 +776,6 @@ df -h /opt
 
 ---
 
-**Last Updated:** 2026-08-18
+**Last Updated:** 2026-08-27
 **Repository Purpose:** Multi-provider inference platform for DGX Spark
-**Current Models:** Qwen3-8B-FP8, Llama-3.1-8B-FP8, Mistral-NeMo-12B-FP8, Qwen3-32B-FP8, Qwen3-30B-A3B-FP8, Qwen3.5-35B-A3B-FP8, Qwen3.8-27B-NVFP4, Llama 3.3 70B-FP8 (vLLM); Qwen3-32B-FP8 (Ollama)
+**Current Models:** Qwen3-8B-FP8, Llama-3.1-8B-FP8, Mistral-NeMo-12B-FP8, Qwen3-32B-FP8, Qwen3-30B-A3B-FP8, Qwen3.5-35B-A3B-FP8, Qwen3.8-27B-NVFP4, Qwen3.8-Flash-Next-NVFP4, Llama 3.3 70B-FP8 (vLLM); Qwen3-32B-FP8 (Ollama)
