@@ -363,7 +363,7 @@ services:
       - --max-model-len
       - "131072"
       - --gpu-memory-utilization
-      - "0.60"
+      - "0.50"
       - --max-num-seqs
       - "8"
       - --max-num-batched-tokens
@@ -383,6 +383,92 @@ services:
       - --trust-remote-code
       - --limit-mm-per-prompt
       - '{"image": 0, "video": 0}'
+    volumes:
+      - /opt/hf:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  # Qwen3.8-Flash-Next MoE (125B main + 51B n-gram embeddings, 6B active), NVFP4
+  # pre-quantised. Added 2026-08-27. Serves the 44 GiB n-gram (PLE) table from NVMe
+  # via mmap so the resident weights drop from 122 GiB to ~76 GiB and fit alongside
+  # a real KV cache in the 128 GB unified pool. See docs/vllm/qwen38-flash-next-nvfp4.md
+  # for the recipe (base image + one Python patch), the two mandatory GB10 workarounds,
+  # and measured performance.
+  #
+  # Image is a locally-built patched variant of vllm/vllm-openai:qwen38-flash-next.
+  # Build both the dated tag AND :latest so future rebuilds cannot silently swap
+  # what :latest points at while this compose reference keeps working:
+  #   git clone https://github.com/blazux/qwen3.8-Flash-DGX.git
+  #   cd qwen3.8-Flash-DGX
+  #   docker build -t qwen38-flash-dgx:2026-08-27 -t qwen38-flash-dgx:latest .
+  # The clone plus checkpoint download (~122 GiB into /opt/hf) must both be present
+  # before `docker compose up -d vllm-qwen38-flash-next-nvfp4`. Only one :8000 binding
+  # runs at a time, so this service and vllm-qwen38-27b-nvfp4 are mutually exclusive.
+  vllm-qwen38-flash-next-nvfp4:
+    image: qwen38-flash-dgx:2026-08-27
+    container_name: vllm-qwen38-flash-next-nvfp4
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      HF_TOKEN: "${HF_TOKEN}"
+      HUGGING_FACE_HUB_TOKEN: "${HF_TOKEN}"
+      HF_HOME: /root/.cache/huggingface
+      HF_HUB_OFFLINE: "1"
+      VLLM_PLE_MMAP: "1"
+      VLLM_PLE_MMAP_WORKERS: "32"
+      VLLM_PLE_MMAP_PREWARM: "0"
+      VLLM_USE_FLASHINFER_SAMPLER: "1"
+    ipc: host
+    shm_size: 16g
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    # NOTE: the model positional arg MUST be a local snapshot directory, NOT the HF
+    # repo id. The community PLE mmap patch resolves the n-gram (PLE) safetensors
+    # shards by filesystem path; passing the repo id (e.g. "RadixArk/Qwen3.8-Flash-
+    # Next-NVFP4") load-fails at ~93% shard progress with
+    #   RuntimeError: PLE mmap: model path '...' is not a local directory;
+    #     point --model at the downloaded snapshot
+    # from src/vllm_ple_mmap.py::_setup_table. The recipe's own scripts/serve.sh
+    # resolves this via SNAP_HOST / SNAP_IN before docker run. The snapshot hash
+    # below is the current one on-disk; bump it in the same commit if the checkpoint
+    # is re-downloaded to a new hash.
+    command:
+      - /root/.cache/huggingface/hub/models--RadixArk--Qwen3.8-Flash-Next-NVFP4/snapshots/7b719225242aacd3dbd3f9407468c2ee9a9d2594
+      - --served-model-name
+      - qwen38-flash-next
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --load-format
+      - safetensors
+      - --max-model-len
+      - "32768"
+      - --max-num-seqs
+      - "2"
+      - --gpu-memory-utilization
+      - "0.78"
+      - --no-enable-prefix-caching
+      - --enable-chunked-prefill
+      - --max-num-batched-tokens
+      - "8192"
+      - '-cc.cudagraph_mode=PIECEWISE'
+      - '-cc.splitting_ops=["vllm::unified_attention_with_output","vllm::unified_mla_attention_with_output","vllm::mamba_mixer2","vllm::mamba_mixer","vllm::short_conv","vllm::qwen3_8_flash_next_ple_short_conv","vllm::qwen3_8_flash_next_qsa_with_output","vllm::linear_attention","vllm::qwen_gdn_attention_core","vllm::qwen_gdn_attention_core_fused_norm_packed","vllm::sparse_attn_indexer","vllm::ple_mmap_lookup"]'
+      - --no-enable-flashinfer-autotune
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --reasoning-parser
+      - qwen3
+      - --speculative-config
+      - '{"method":"mtp","num_speculative_tokens":2}'
     volumes:
       - /opt/hf:/root/.cache/huggingface
     deploy:
